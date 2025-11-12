@@ -243,6 +243,7 @@ const TelegramChatWithDB = () => {
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   // 加载错误提示去重
   const loadErrorShownRef = useRef(false);
+  const [loadIssue, setLoadIssue] = useState<string | null>(null);
   // 是否允许循环引用（持久化到本地）
   const [allowCircular, setAllowCircular] = useState<boolean>(() => {
     try {
@@ -513,6 +514,7 @@ const TelegramChatWithDB = () => {
       setScreens(ordered);
       // 缓存最新成功数据
       try { localStorage.setItem(CACHE_KEY, JSON.stringify(ordered)); } catch (e) { void e; }
+      setLoadIssue(null);
       return loadedScreens; // 修复：返回最新数据供调用者使用
     } catch (error) {
       console.error('[LoadScreens] Error:', error);
@@ -523,18 +525,15 @@ const TelegramChatWithDB = () => {
           const cached: unknown = JSON.parse(raw);
           if (Array.isArray(cached)) {
             setScreens(reorderByPinned(cached as Screen[]));
-            if (!loadErrorShownRef.current) {
-              toast.warning("离线或服务异常：已加载本地缓存的数据");
-              loadErrorShownRef.current = true;
-            }
+            setLoadIssue('离线或服务异常：已加载本地缓存的数据');
+            loadErrorShownRef.current = true;
             return cached as Screen[];
           }
         }
       } catch (e) { void e; }
-      if (!loadErrorShownRef.current) {
-        toast.error("加载模版失败");
-        loadErrorShownRef.current = true;
-      }
+      const reason = error instanceof Error ? error.message : String(error ?? '未知错误');
+      setLoadIssue(`加载模版失败：${reason}`);
+      loadErrorShownRef.current = true;
       return []; // 错误时返回空数组
     } finally {
       setIsLoading(false);
@@ -1666,6 +1665,14 @@ const TelegramChatWithDB = () => {
               <LogOut className="w-4 h-4" />
             </Button>
           </div>
+          {loadIssue && (
+            <Alert className="mb-2 border-amber-500/50 bg-amber-500/10">
+              <AlertCircle className="h-4 w-4 text-amber-600" />
+              <AlertDescription className="text-xs text-foreground">
+                {loadIssue}
+              </AlertDescription>
+            </Alert>
+          )}
           
           {/* 面包屑导航 - 显示当前位置 */}
           {isPreviewMode && (
