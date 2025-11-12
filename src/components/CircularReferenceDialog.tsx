@@ -43,19 +43,19 @@ export default function CircularReferenceDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <Alert variant="destructive">
+          <Alert variant="destructive" className="border-destructive/50 bg-destructive/10">
             <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
+            <AlertDescription className="text-foreground">
               模版中存在循环导航路径，这可能导致用户无法退出循环。
             </AlertDescription>
           </Alert>
 
           <div className="space-y-3">
-            <h4 className="font-semibold text-sm">循环路径详情：</h4>
+            <h4 className="font-semibold text-sm text-foreground">循环路径详情：</h4>
             {circularPaths.map((circular, index) => (
               <div 
                 key={index}
-                className="p-4 border border-destructive/30 bg-destructive/5 rounded-lg space-y-3"
+                className="p-4 border border-destructive/50 bg-destructive/10 rounded-lg space-y-3"
               >
                 <div className="flex items-start gap-2">
                   <span className="text-destructive font-semibold text-sm shrink-0">
@@ -72,7 +72,7 @@ export default function CircularReferenceDialog({
                               onOpenChange(false);
                             }
                           }}
-                          className="px-2 py-1 bg-background hover:bg-accent rounded text-sm font-medium transition-colors"
+                          className="px-2 py-1 bg-muted hover:bg-accent text-foreground rounded text-sm font-medium transition-colors"
                         >
                           {name}
                         </button>
@@ -88,22 +88,22 @@ export default function CircularReferenceDialog({
           </div>
 
           <div className="space-y-2 p-4 bg-muted/50 rounded-lg">
-            <h4 className="font-semibold text-sm">如何解决？</h4>
+            <h4 className="font-semibold text-sm text-foreground">如何解决？</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li className="flex gap-2">
-                <span className="shrink-0">1.</span>
+                <span className="shrink-0 text-foreground">1.</span>
                 <span>点击上方的模版名称可以快速跳转到对应模版</span>
               </li>
               <li className="flex gap-2">
-                <span className="shrink-0">2.</span>
+                <span className="shrink-0 text-foreground">2.</span>
                 <span>移除循环路径中某个按钮的链接，打破循环</span>
               </li>
               <li className="flex gap-2">
-                <span className="shrink-0">3.</span>
+                <span className="shrink-0 text-foreground">3.</span>
                 <span>调整按钮链接目标，重新设计导航流程</span>
               </li>
               <li className="flex gap-2">
-                <span className="shrink-0">4.</span>
+                <span className="shrink-0 text-foreground">4.</span>
                 <span>使用关系图查看完整的模版结构和导航关系</span>
               </li>
             </ul>
