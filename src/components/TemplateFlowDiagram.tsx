@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
-import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown } from 'lucide-react';
+import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown, Maximize2, Minimize2 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { findAllCircularReferences, generateRelationshipGraph } from '@/lib/referenceChecker';
 
@@ -65,6 +65,8 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>("");
   const diagramRef = useRef<HTMLDivElement | null>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
+  const [fullscreen, setFullscreen] = useState<boolean>(false);
+  const autoOrientedRef = useRef(false);
 
   // 预计算循环集合
   const cycleNodeIds = useMemo(() => {
@@ -328,6 +330,20 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     return { nodes, edges, edgeHints: edgeHintMap, matchIds: matched };
   }, [screens, currentScreenId, orientation, showButtonLabels, cycleNodeIds, focusCurrent, searchQuery, nodeScale, hideIsolated, edgeStraight]);
 
+  // 打开时根据层级数量自动选择方向（水平层数多时改为垂直）
+  useEffect(() => {
+    if (!open) { autoOrientedRef.current = false; return; }
+    if (autoOrientedRef.current) return;
+    const { nodes: gNodes } = generateRelationshipGraph(screens);
+    const levelSet = new Set<number>();
+    gNodes.forEach(n => levelSet.add(n.level));
+    const levelCount = levelSet.size;
+    if (levelCount >= 5) {
+      setOrientation('vertical');
+    }
+    autoOrientedRef.current = true;
+  }, [open, screens]);
+
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [edgeHintsMap, setEdgeHintsMap] = useState<Map<string, string>>(edgeHints);
@@ -392,7 +408,11 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] max-h-[95vh] h-[800px] p-0 gap-0">
+      <DialogContent className={
+        fullscreen
+          ? "w-[100vw] h-[100vh] max-w-none max-h-none p-0 gap-0 flex flex-col rounded-none"
+          : "w-[96vw] h-[88vh] max-w-[96vw] max-h-[96vh] p-0 gap-0 flex flex-col"
+      }>
         <DialogHeader className="px-6 py-4 border-b">
           <DialogTitle className="flex items-center justify-between w-full">
             <span>模版关系图</span>
@@ -460,6 +480,10 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
                 </div>
                 <Button variant="outline" size="sm" onClick={() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 })} title="重置视图">
                   重置视图
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => { setFullscreen(f => !f); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} title={fullscreen ? "退出全屏" : "全屏显示"}>
+                  {fullscreen ? <Minimize2 className="w-4 h-4 mr-1" /> : <Maximize2 className="w-4 h-4 mr-1" />}
+                  {fullscreen ? '退出全屏' : '全屏'}
                 </Button>
               </div>
             </div>
