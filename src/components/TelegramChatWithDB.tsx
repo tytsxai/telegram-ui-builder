@@ -2,10 +2,11 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import type { User } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { fromUnsafe } from "@/integrations/supabase/unsafe";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Plus, Save, Trash2, FileText, Bold, Italic, Code, Link, Share2, LogOut, Download, Copy, Upload, Edit2, Eye, Edit, Undo2, Redo2, AlertCircle, Network } from "lucide-react";
+import { Plus, Save, Trash2, FileText, Bold, Italic, Code, Link, Share2, LogOut, Download, Copy, Upload, Edit2, Eye, Edit, Undo2, Redo2, AlertCircle, Network, Star, StarOff } from "lucide-react";
 import MessageBubble, { MessageBubbleHandle } from "./MessageBubble";
 import InlineKeyboard from "./InlineKeyboard";
 import ButtonEditDialog from "./ButtonEditDialog";
@@ -14,6 +15,7 @@ import CircularReferenceDialog from "./CircularReferenceDialog";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { KeyboardRow, KeyboardButton } from "./TelegramChat";
@@ -237,6 +239,79 @@ const TelegramChatWithDB = () => {
   const [flowDiagramOpen, setFlowDiagramOpen] = useState(false);
   const [circularDialogOpen, setCircularDialogOpen] = useState(false);
   const [detectedCircularPaths, setDetectedCircularPaths] = useState<Array<{ path: string[]; screenNames: string[] }>>([]);
+  // 置顶模版（本地持久化，按用户隔离）
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  // 是否允许循环引用（持久化到本地）
+  const [allowCircular, setAllowCircular] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('allow_circular_references');
+      return saved ? JSON.parse(saved) === true : true; // 默认允许
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('allow_circular_references', JSON.stringify(allowCircular));
+    } catch (e) {
+      // 忽略 Safari/隐私模式无法写入等异常
+      void e;
+    }
+  }, [allowCircular]);
+
+  // 保存状态条：最后保存时间、离线状态、错误信息
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState<boolean>(typeof navigator !== 'undefined' ? !navigator.onLine : false);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // 置顶：读取与持久化
+  const PINNED_KEY = user ? `pinned_screens_${user.id}` : 'pinned_screens_anon';
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PINNED_KEY);
+      if (!raw) { setPinnedIds([]); return; }
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.every(x => typeof x === 'string')) {
+        setPinnedIds(parsed as string[]);
+      } else {
+        setPinnedIds([]);
+      }
+    } catch (e) {
+      void e;
+      setPinnedIds([]);
+    }
+  }, [PINNED_KEY]);
+
+  const persistPinned = useCallback((ids: string[]) => {
+    try { localStorage.setItem(PINNED_KEY, JSON.stringify(ids)); } catch (e) { void e; }
+  }, [PINNED_KEY]);
+
+  const isPinned = useCallback((id?: string) => !!id && pinnedIds.includes(id), [pinnedIds]);
+
+  const reorderByPinned = useCallback((list: Screen[]) => {
+    const set = new Set(pinnedIds);
+    type WithMeta = Screen & { created_at?: string };
+    const getCreatedAt = (s: WithMeta) => typeof s.created_at === 'string' ? Date.parse(s.created_at) : 0;
+    return [...list].sort((a: WithMeta, b: WithMeta) => {
+      const ap = set.has(a.id) ? 1 : 0;
+      const bp = set.has(b.id) ? 1 : 0;
+      if (ap !== bp) return bp - ap; // pinned first
+      const bd = getCreatedAt(b) - getCreatedAt(a);
+      if (bd !== 0) return bd; // newer first
+      return (b.name || '').localeCompare(a.name || '', 'zh');
+    });
+  }, [pinnedIds]);
 
   // Memo 化昂贵的计算
   const circularReferences = useMemo(() => {
@@ -395,13 +470,13 @@ const TelegramChatWithDB = () => {
       setScreens([]);
       setScreensLoaded(false);
     }
-  }, [user]);
+  }, [user, reorderByPinned]);
 
   const loadScreens = useCallback(async () => {
     if (!user) return [];
     setIsLoading(true);
     try {
-      const { data, error } = await (supabase.from as any)("screens")
+      const { data, error } = await fromUnsafe(supabase.from)("screens")
         .select("*")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
@@ -412,7 +487,8 @@ const TelegramChatWithDB = () => {
         ...screen,
         keyboard: ensureKeyboard(screen.keyboard),
       }));
-      setScreens(loadedScreens);
+      const ordered = reorderByPinned(loadedScreens as Screen[]);
+      setScreens(ordered);
       return loadedScreens; // 修复：返回最新数据供调用者使用
     } catch (error) {
       console.error('[LoadScreens] Error:', error);
@@ -421,7 +497,7 @@ const TelegramChatWithDB = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [user]);
+  }, [user, reorderByPinned]);
 
   useEffect(() => {
     if (user && !screensLoaded) {
@@ -537,7 +613,7 @@ const TelegramChatWithDB = () => {
     const name = newScreenName.trim() || `模版 ${screens.length + 1}`;
 
     try {
-      const { data, error} = await (supabase.from as any)("screens")
+      const { data, error} = await fromUnsafe(supabase.from)("screens")
         .insert([{
         user_id: user.id,
         name,
@@ -553,6 +629,8 @@ const TelegramChatWithDB = () => {
         : null;
       
       toast.success("✅ 模版保存成功！");
+      setLastSavedAt(Date.now());
+      setLastError(null);
       setNewScreenName("");
       setLastSavedContent({ message: messageContent, keyboard });
       setHasUnsavedChanges(false);
@@ -584,6 +662,8 @@ const TelegramChatWithDB = () => {
       }
     } catch (error) {
       console.error('[SaveScreen] Error:', error);
+      const message = error instanceof Error ? error.message : '未知错误';
+      setLastError(message);
       toast.error("保存模版失败");
     } finally {
       setIsLoading(false);
@@ -619,20 +699,30 @@ const TelegramChatWithDB = () => {
       );
     }
 
-    // 检查循环引用
+    // 检查循环引用（按设置决定是否阻止保存）
     const currentScreen = screens.find(s => s.id === currentScreenId);
-    const allCircles = findAllCircularReferences([...screens, { id: currentScreenId, name: currentScreen?.name || "", keyboard }]);
-    
+    const allCircles = findAllCircularReferences([
+      ...screens,
+      { id: currentScreenId, name: currentScreen?.name || "", keyboard },
+    ]);
     if (allCircles.length > 0) {
       setDetectedCircularPaths(allCircles);
-      setCircularDialogOpen(true);
-      toast.info("请先处理循环引用问题，然后重新保存");
-      setIsLoading(false);
-      return;
+      if (!allowCircular) {
+        setCircularDialogOpen(true);
+        toast.info("检测到循环引用：已阻止保存。请处理后重试。");
+        setIsLoading(false);
+        return;
+      } else {
+        // 允许循环：仅提示，不阻断
+        toast.warning(
+          `⚠️ 检测到 ${allCircles.length} 个循环引用（已允许）。建议确认交互不会陷入死循环。`,
+          { duration: 5000 }
+        );
+      }
     }
 
     try {
-      const { error } = await (supabase.from as any)("screens")
+      const { error } = await fromUnsafe(supabase.from)("screens")
         .update({
           message_content: messageContent,
           keyboard,
@@ -642,6 +732,8 @@ const TelegramChatWithDB = () => {
 
       if (error) throw error;
       toast.success("✅ 模版更新成功！");
+      setLastSavedAt(Date.now());
+      setLastError(null);
       setLastSavedContent({ message: messageContent, keyboard });
       setHasUnsavedChanges(false);
       resetHistory({ messageContent, keyboard }); // 重置撤销历史
@@ -649,6 +741,8 @@ const TelegramChatWithDB = () => {
       await loadScreens();
     } catch (error) {
       console.error('[UpdateScreen] Error:', error);
+      const message = error instanceof Error ? error.message : '未知错误';
+      setLastError(message);
       toast.error("更新模版失败");
     } finally {
       setIsLoading(false);
@@ -813,7 +907,7 @@ const TelegramChatWithDB = () => {
     }
 
     try {
-      const { error } = await (supabase.from as any)("screens")
+      const { error } = await fromUnsafe(supabase.from)("screens")
         .delete()
         .eq("id", id)
         .eq("user_id", user.id);
@@ -900,7 +994,7 @@ const TelegramChatWithDB = () => {
 
     try {
       const shareToken = crypto.randomUUID();
-      const { error } = await (supabase.from as any)("screens")
+      const { error } = await fromUnsafe(supabase.from)("screens")
         .update({
           is_public: true,
           share_token: shareToken,
@@ -1018,7 +1112,7 @@ const TelegramChatWithDB = () => {
         
         for (const screen of parsed.screens) {
           const normalizedKeyboard = ensureKeyboard(screen.keyboard);
-          const { data, error } = await (supabase.from as any)("screens")
+          const { data, error } = await fromUnsafe(supabase.from)("screens")
             .insert([{
               user_id: user.id,
               name: `${screen.name} (导入)`,
@@ -1055,7 +1149,7 @@ const TelegramChatWithDB = () => {
           }));
           
           if (needsUpdate) {
-            await (supabase.from as any)("screens")
+            await fromUnsafe(supabase.from)("screens")
               .update({ keyboard: updatedKeyboard })
               .eq("id", screen.id);
           }
@@ -1137,7 +1231,7 @@ const TelegramChatWithDB = () => {
     if (!currentScreenId || !user || !renameValue.trim()) return;
 
     try {
-      const { error } = await (supabase.from as any)("screens")
+      const { error } = await fromUnsafe(supabase.from)("screens")
         .update({ name: renameValue.trim() })
         .eq("id", currentScreenId)
         .eq("user_id", user.id);
@@ -1451,6 +1545,14 @@ const TelegramChatWithDB = () => {
             setEditingButtonData(null);
           }}
           screens={screens}
+          onOpenScreen={(screenId) => {
+            loadScreen(screenId);
+            toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);
+          }}
+          onCreateAndOpenScreen={() => {
+            createNewScreen();
+            toast.info('🆕 已创建新模版，请先保存以便可被链接');
+          }}
         />
       )}
       
@@ -1618,6 +1720,56 @@ const TelegramChatWithDB = () => {
             <Button onClick={createNewScreen} variant="outline" className="sm:w-auto" title="新建 (Ctrl+N)">
               <FileText className="w-4 h-4 mr-2" /> 新建
             </Button>
+            {/* 允许循环引用开关 */}
+            <div className="flex items-center gap-2 ml-auto">
+              <Label htmlFor="allow-circular" className="text-xs text-muted-foreground">允许循环引用</Label>
+              <Switch
+                id="allow-circular"
+                checked={allowCircular}
+                onCheckedChange={(v) => setAllowCircular(!!v)}
+              />
+            </div>
+          </div>
+
+          {/* 保存状态条 */}
+          <div className="mt-2 p-2 bg-muted/50 rounded text-xs flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {isOffline && (
+                <span className="text-amber-600">⚠️ 离线：操作将暂存，恢复联网后再试</span>
+              )}
+              {isLoading ? (
+                <span className="text-muted-foreground">💾 保存中...</span>
+              ) : lastError ? (
+                <span className="text-destructive">❌ 保存失败：{lastError}</span>
+              ) : lastSavedAt ? (
+                <span className="text-muted-foreground">
+                  ✅ 已保存于 {new Date(lastSavedAt).toLocaleTimeString()}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">尚未保存</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {lastError && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isLoading}
+                    onClick={() => {
+                      if (currentScreenId) {
+                        updateScreen();
+                      } else {
+                        saveScreen();
+                      }
+                    }}
+                  >
+                    重试
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setLastError(null)}>忽略</Button>
+                </>
+              )}
+            </div>
           </div>
           
           {screens.length > 0 && (
@@ -1629,12 +1781,33 @@ const TelegramChatWithDB = () => {
                 <SelectContent>
                   {screens.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
-                      {s.name}
+                      {isPinned(s.id) ? '★ ' : ''}{s.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <div className="flex gap-2">
+                <Button
+                  variant={isPinned(currentScreenId) ? "default" : "outline"}
+                  onClick={() => {
+                    if (!currentScreenId) return;
+                    setPinnedIds(prev => {
+                      const next = prev.includes(currentScreenId)
+                        ? prev.filter(id => id !== currentScreenId)
+                        : [...prev, currentScreenId];
+                      persistPinned(next);
+                      // 仅本地重排
+                      setScreens(curr => reorderByPinned(curr));
+                      return next;
+                    });
+                  }}
+                  disabled={!currentScreenId}
+                  className="flex-1 sm:flex-none"
+                  title={isPinned(currentScreenId) ? "取消置顶" : "置顶"}
+                >
+                  {isPinned(currentScreenId) ? <Star className="w-4 h-4 mr-2" /> : <StarOff className="w-4 h-4 mr-2" />}
+                  {isPinned(currentScreenId) ? '已置顶' : '置顶'}
+                </Button>
                 <Button
                   variant="outline"
                   onClick={() => currentScreenId && deleteScreen(currentScreenId)}
@@ -1667,14 +1840,18 @@ const TelegramChatWithDB = () => {
             </Button>
           </div>
           
-          {/* 循环引用警告 - 使用 memo 化的数据 */}
+          {/* 循环引用提示 - 允许时弱提示，禁止时警告 */}
           {!isPreviewMode && screens.length > 0 && (() => {
             if (circularReferences.length > 0) {
               return (
-                <Alert className="mt-2 border-destructive/50 bg-destructive/10">
-                  <AlertCircle className="h-4 w-4 text-destructive" />
+                <Alert className={`mt-2 ${allowCircular ? 'border-amber-500/50 bg-amber-500/10' : 'border-destructive/50 bg-destructive/10'}`}>
+                  <AlertCircle className={`h-4 w-4 ${allowCircular ? 'text-amber-600' : 'text-destructive'}`} />
                   <AlertDescription className="text-xs text-foreground">
-                    <strong>⚠️ 检测到 {circularReferences.length} 个循环引用：</strong>
+                    <strong>
+                      {allowCircular
+                        ? `⚠️ 检测到 ${circularReferences.length} 个循环引用（已允许）`
+                        : `⚠️ 检测到 ${circularReferences.length} 个循环引用（已禁止）`}
+                    </strong>
                     {circularReferences.slice(0, 2).map((circle, idx) => (
                       <div key={idx} className="mt-1 text-muted-foreground">
                         • {circle.screenNames.join(' → ')}
@@ -1684,6 +1861,9 @@ const TelegramChatWithDB = () => {
                       <div className="mt-1 text-muted-foreground">
                         还有 {circularReferences.length - 2} 个循环...
                       </div>
+                    )}
+                    {!allowCircular && (
+                      <div className="mt-1 text-muted-foreground">当前已禁止循环引用，请调整后再保存。</div>
                     )}
                   </AlertDescription>
                 </Alert>

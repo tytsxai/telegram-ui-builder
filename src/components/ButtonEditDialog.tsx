@@ -18,13 +18,16 @@ interface ButtonEditDialogProps {
   button: KeyboardButton;
   onSave: (button: KeyboardButton) => void;
   screens?: Screen[];
+  onOpenScreen?: (screenId: string) => void;
+  onCreateAndOpenScreen?: () => void;
 }
 
-const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [] }: ButtonEditDialogProps) => {
+const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], onOpenScreen, onCreateAndOpenScreen }: ButtonEditDialogProps) => {
   const [editedButton, setEditedButton] = useState(button);
   const [actionType, setActionType] = useState<"callback" | "url" | "link">(
     button.url ? "url" : button.linked_screen_id ? "link" : "callback"
   );
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     setEditedButton(button);
@@ -165,6 +168,11 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [] }: 
                 </div>
               ) : (
                 <>
+                  <Input
+                    placeholder="搜索模版名称"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
                   <Select
                     value={editedButton.linked_screen_id || ""}
                     onValueChange={handleScreenSelect}
@@ -173,13 +181,42 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [] }: 
                       <SelectValue placeholder="选择要链接的模版" />
                     </SelectTrigger>
                     <SelectContent>
-                      {screens.map((screen) => (
+                      {screens
+                        .filter((s) =>
+                          search.trim() === ""
+                            ? true
+                            : s.name.toLowerCase().includes(search.trim().toLowerCase())
+                        )
+                        .map((screen) => (
                         <SelectItem key={screen.id} value={screen.id}>
                           {screen.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      disabled={!editedButton.linked_screen_id}
+                      onClick={() => {
+                        if (editedButton.linked_screen_id && onOpenScreen) {
+                          onOpenScreen(editedButton.linked_screen_id);
+                          onOpenChange(false);
+                        }
+                      }}
+                    >
+                      打开目标
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        onCreateAndOpenScreen?.();
+                        onOpenChange(false);
+                      }}
+                    >
+                      新建并跳转
+                    </Button>
+                  </div>
                    <p className="text-xs text-muted-foreground">
                      💡 按钮文本会自动添加 "→ 模版名" 后缀，方便识别层级关系
                    </p>
