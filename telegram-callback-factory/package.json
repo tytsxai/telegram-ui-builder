@@ -1,0 +1,33 @@
+{
+  "name": "telegram-callback-factory",
+  "version": "1.0.0",
+  "description": "自动生成、解析和管理 Telegram Bot 的 callback_data",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "callback",
+    "telegraf",
+    "grammY"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
