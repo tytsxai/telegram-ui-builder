@@ -15,6 +15,7 @@ import 'reactflow/dist/style.css';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Slider } from '@/components/ui/slider';
 import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { findAllCircularReferences, generateRelationshipGraph } from '@/lib/referenceChecker';
@@ -58,6 +59,9 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
   const [showButtonLabels, setShowButtonLabels] = useState<boolean>(false);
   const [focusCurrent, setFocusCurrent] = useState<boolean>(false);
+  const [hideIsolated, setHideIsolated] = useState<boolean>(false);
+  const [edgeStraight, setEdgeStraight] = useState<boolean>(false);
+  const [nodeScale, setNodeScale] = useState<number>(1);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const diagramRef = useRef<HTMLDivElement | null>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
@@ -163,6 +167,10 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     }
 
     screens.forEach((screen) => {
+      if (hideIsolated) {
+        const isolated = !hasIncomingEdge.has(screen.id) && !hasOutgoingEdge.has(screen.id);
+        if (isolated) return;
+      }
       if (focusCurrent && currentScreenId && !visibleNodes.has(screen.id)) return;
       const isCurrentScreen = screen.id === currentScreenId;
       const isEntryPoint = !hasIncomingEdge.has(screen.id) && hasOutgoingEdge.has(screen.id);
@@ -179,10 +187,12 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
 
       // 布局：按层级和层内序号布置坐标
       const li = levelIndexMap.get(screen.id) || { level: 0, index: 0 };
-      const nodeW = 220;
-      const nodeH = 110;
-      const xGap = 280;
-      const yGap = 180;
+      const baseW = 220;
+      const baseH = 110;
+      const nodeW = Math.round(baseW * nodeScale);
+      const nodeH = Math.round(baseH * nodeScale);
+      const xGap = Math.round(280 * nodeScale);
+      const yGap = Math.round(180 * nodeScale);
       const x = orientation === 'horizontal' ? li.level * xGap : li.index * xGap;
       const y = orientation === 'horizontal' ? li.index * yGap : li.level * yGap;
 
@@ -211,7 +221,11 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
         data: {
           label: (
             <div className="flex flex-col items-start gap-1 p-2">
-              <div className="font-semibold text-sm truncate max-w-[150px]" title={screen.name}>
+              <div
+                className="font-semibold text-sm break-words leading-tight"
+                style={{ maxWidth: nodeW - 60, maxHeight: 36, overflow: 'hidden' }}
+                title={screen.name}
+              >
                 {nodeLabel}
               </div>
               <div className="text-xs text-muted-foreground">
@@ -240,7 +254,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
           border: `2px ${nodeBorderStyle} ${isMatched ? 'hsl(var(--primary))' : nodeColor}`,
           borderRadius: '8px',
           padding: '0',
-          width: 220,
+          width: nodeW,
           cursor: 'pointer',
           boxShadow: isCurrentScreen ? '0 0 0 3px hsla(var(--primary), 0.3)' : undefined,
         },
@@ -253,6 +267,10 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     const edgeMap = new Map<string, { count: number; buttons: string[] }>();
     
     screens.forEach(screen => {
+      if (hideIsolated) {
+        const isolated = !hasIncomingEdge.has(screen.id) && !hasOutgoingEdge.has(screen.id);
+        if (isolated) return;
+      }
       if (focusCurrent && currentScreenId && !visibleNodes.has(screen.id)) return;
       screen.keyboard.forEach(row => {
         row.buttons.forEach(btn => {
@@ -281,7 +299,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
         id: key,
         source: sourceId,
         target: targetId,
-        type: 'smoothstep',
+        type: edgeStraight ? 'straight' : 'smoothstep',
         animated: sourceId === currentScreenId,
         label: showButtonLabels ? buttonList : (data.count > 1 ? `${data.count}个按钮` : data.buttons[0] ?? ''),
         labelStyle: {
@@ -295,7 +313,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
         },
         style: {
           stroke: sourceId === currentScreenId ? 'hsl(var(--primary))' : 'hsl(var(--border))',
-          strokeWidth: sourceId === currentScreenId ? 2 : 1.5,
+          strokeWidth: Math.min(3.5, 1 + Math.log2(1 + data.count)),
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
@@ -308,7 +326,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     });
 
     return { nodes, edges, edgeHints: edgeHintMap, matchIds: matched };
-  }, [screens, currentScreenId, orientation, showButtonLabels, cycleNodeIds, focusCurrent, searchQuery]);
+  }, [screens, currentScreenId, orientation, showButtonLabels, cycleNodeIds, focusCurrent, searchQuery, nodeScale, hideIsolated, edgeStraight]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -403,6 +421,14 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
                   <span className="text-muted-foreground">仅关联</span>
                   <Switch checked={focusCurrent} onCheckedChange={v => setFocusCurrent(!!v)} />
                 </div>
+                <div className="flex items-center gap-2" title="隐藏孤立节点（未被引用且无输出）">
+                  <span className="text-muted-foreground">隐藏孤立</span>
+                  <Switch checked={hideIsolated} onCheckedChange={v => setHideIsolated(!!v)} />
+                </div>
+                <div className="flex items-center gap-2" title="边样式：直线/曲线">
+                  <span className="text-muted-foreground">直线边</span>
+                  <Switch checked={edgeStraight} onCheckedChange={v => setEdgeStraight(!!v)} />
+                </div>
                 <Button variant="outline" size="sm" onClick={() => { setNodes(initialNodes); setEdges(initialEdges); }} title="重新布局">
                   <RotateCw className="w-4 h-4 mr-1" /> 重新布局
                 </Button>
@@ -428,6 +454,13 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
                     className="h-8 w-40"
                   />
                 </div>
+                <div className="flex items-center gap-2 w-40" title="节点尺寸/间距">
+                  <span className="text-muted-foreground text-xs">尺寸</span>
+                  <Slider min={0.8} max={1.6} step={0.1} value={[nodeScale]} onValueChange={(v) => setNodeScale(v[0] ?? 1)} />
+                </div>
+                <Button variant="outline" size="sm" onClick={() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 })} title="重置视图">
+                  重置视图
+                </Button>
               </div>
             </div>
           </DialogTitle>
