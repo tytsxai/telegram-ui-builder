@@ -1671,12 +1671,12 @@ const TelegramChatWithDB = () => {
           {!isPreviewMode && screens.length > 0 && (() => {
             if (circularReferences.length > 0) {
               return (
-                <Alert className="mt-2 border-orange-500 bg-orange-50 dark:bg-orange-950/20">
-                  <AlertCircle className="h-4 w-4 text-orange-600" />
-                  <AlertDescription className="text-xs">
+                <Alert className="mt-2 border-destructive/50 bg-destructive/10">
+                  <AlertCircle className="h-4 w-4 text-destructive" />
+                  <AlertDescription className="text-xs text-foreground">
                     <strong>⚠️ 检测到 {circularReferences.length} 个循环引用：</strong>
                     {circularReferences.slice(0, 2).map((circle, idx) => (
-                      <div key={idx} className="mt-1">
+                      <div key={idx} className="mt-1 text-muted-foreground">
                         • {circle.screenNames.join(' → ')}
                       </div>
                     ))}
