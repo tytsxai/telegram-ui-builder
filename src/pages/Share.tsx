@@ -53,7 +53,7 @@ const Share = () => {
   useEffect(() => {
     const fetchScreen = async () => {
       try {
-        const { data, error } = await fromUnsafe(supabase.from)("screens")
+        const { data, error } = await fromUnsafe(supabase)("screens")
           .select("*")
           .eq("share_token", token)
           .eq("is_public", true)
@@ -92,7 +92,7 @@ const Share = () => {
     if (!screen) return;
 
     try {
-      const { error } = await fromUnsafe(supabase.from)("screens")
+      const { error } = await fromUnsafe(supabase)("screens")
         .insert([{
         user_id: user.id,
         name: `${screen.name} (副本)`,

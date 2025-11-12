@@ -482,7 +482,7 @@ const TelegramChatWithDB = () => {
     setIsLoading(true);
     try {
       const request = async () => {
-        const { data, error } = await fromUnsafe(supabase.from)("screens")
+        const { data, error } = await fromUnsafe(supabase)("screens")
           .select("*")
           .eq("user_id", user.id)
           .order("created_at", { ascending: false });
@@ -654,7 +654,7 @@ const TelegramChatWithDB = () => {
     const name = newScreenName.trim() || `模版 ${screens.length + 1}`;
 
     try {
-      const { data, error} = await fromUnsafe(supabase.from)("screens")
+      const { data, error} = await fromUnsafe(supabase)("screens")
         .insert([{
         user_id: user.id,
         name,
@@ -763,7 +763,7 @@ const TelegramChatWithDB = () => {
     }
 
     try {
-      const { error } = await fromUnsafe(supabase.from)("screens")
+      const { error } = await fromUnsafe(supabase)("screens")
         .update({
           message_content: messageContent,
           keyboard,
@@ -948,7 +948,7 @@ const TelegramChatWithDB = () => {
     }
 
     try {
-      const { error } = await fromUnsafe(supabase.from)("screens")
+      const { error } = await fromUnsafe(supabase)("screens")
         .delete()
         .eq("id", id)
         .eq("user_id", user.id);
@@ -1035,7 +1035,7 @@ const TelegramChatWithDB = () => {
 
     try {
       const shareToken = crypto.randomUUID();
-      const { error } = await fromUnsafe(supabase.from)("screens")
+      const { error } = await fromUnsafe(supabase)("screens")
         .update({
           is_public: true,
           share_token: shareToken,
@@ -1153,7 +1153,7 @@ const TelegramChatWithDB = () => {
         
         for (const screen of parsed.screens) {
           const normalizedKeyboard = ensureKeyboard(screen.keyboard);
-          const { data, error } = await fromUnsafe(supabase.from)("screens")
+          const { data, error } = await fromUnsafe(supabase)("screens")
             .insert([{
               user_id: user.id,
               name: `${screen.name} (导入)`,
@@ -1190,7 +1190,7 @@ const TelegramChatWithDB = () => {
           }));
           
           if (needsUpdate) {
-            await fromUnsafe(supabase.from)("screens")
+            await fromUnsafe(supabase)("screens")
               .update({ keyboard: updatedKeyboard })
               .eq("id", screen.id);
           }
@@ -1272,7 +1272,7 @@ const TelegramChatWithDB = () => {
     if (!currentScreenId || !user || !renameValue.trim()) return;
 
     try {
-      const { error } = await fromUnsafe(supabase.from)("screens")
+      const { error } = await fromUnsafe(supabase)("screens")
         .update({ name: renameValue.trim() })
         .eq("id", currentScreenId)
         .eq("user_id", user.id);
