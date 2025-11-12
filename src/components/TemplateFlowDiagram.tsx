@@ -10,6 +10,7 @@ import ReactFlow, {
   MarkerType,
   Position,
   ReactFlowInstance,
+  NodeChange,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -46,6 +47,7 @@ interface TemplateFlowDiagramProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onScreenClick?: (screenId: string) => void;
+  userId?: string;
 }
 
 const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
@@ -54,6 +56,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   open,
   onOpenChange,
   onScreenClick,
+  userId,
 }) => {
   // 控件：布局方向与边标签
   const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
@@ -69,6 +72,9 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   const [fullscreen, setFullscreen] = useState<boolean>(false);
   const autoOrientedRef = useRef(false);
   const PREF_KEY = 'diagram_pref_mindmap';
+  const POS_KEY = `diagram_positions_${userId || 'anon'}`;
+  const [useSavedPositions, setUseSavedPositions] = useState<boolean>(false);
+  const savedPositionsRef = useRef<Map<string, {x:number; y:number}>>(new Map());
 
   // 预计算循环集合
   const cycleNodeIds = useMemo(() => {
@@ -330,6 +336,8 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
         nodeLabel = `🎯 ${screen.name}`;
       }
 
+      // 允许应用已保存的位置
+      const saved = savedPositionsRef.current.get(screen.id);
       nodes.push({
         id: screen.id,
         type: 'default',
@@ -363,7 +371,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
             </div>
           ),
         },
-        position: { x, y },
+        position: saved ? { x: saved.x, y: saved.y } : { x, y },
         style: {
           background: 'hsl(var(--card))',
           border: `2px ${nodeBorderStyle} ${isMatched ? 'hsl(var(--primary))' : nodeColor}`,
@@ -483,9 +491,20 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   const [edgeHintsMap, setEdgeHintsMap] = useState<Map<string, string>>(edgeHints);
   useEffect(() => setEdgeHintsMap(edgeHints), [edgeHints]);
 
+  // 合并自动布局与用户布局：如已存在用户/保存的布局，保留当前坐标，仅为新增节点填充位置
   useEffect(() => {
-    setNodes(initialNodes);
-  }, [initialNodes, setNodes]);
+    setNodes(prev => {
+      if (!useSavedPositions && savedPositionsRef.current.size === 0) {
+        return initialNodes;
+      }
+      const prevMap = new Map(prev.map(n => [n.id, n]));
+      const merged = initialNodes.map(n => {
+        const old = prevMap.get(n.id);
+        return old ? { ...n, position: old.position } : n;
+      });
+      return merged;
+    });
+  }, [initialNodes, setNodes, useSavedPositions]);
 
   useEffect(() => {
     setEdges(initialEdges);
@@ -521,6 +540,63 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       onOpenChange(false);
     }
   };
+
+  // 包装 nodes change：拖拽后开启布局保留
+  const handleNodesChange = useCallback((changes: NodeChange[]) => {
+    if (changes.some(c => c.type === 'position' || c.type === 'dimensions')) {
+      setUseSavedPositions(true);
+    }
+    onNodesChange(changes);
+  }, [onNodesChange]);
+
+  // 布局持久化
+  const saveLayout = useCallback(() => {
+    const data = nodes.map(n => ({ id: n.id, x: n.position.x, y: n.position.y }));
+    try {
+      localStorage.setItem(POS_KEY, JSON.stringify(data));
+      // 更新内存位置表
+      const m = new Map<string, {x:number;y:number}>();
+      data.forEach(d => m.set(d.id, { x: d.x, y: d.y }));
+      savedPositionsRef.current = m;
+      setUseSavedPositions(true);
+      rfInstance?.fitView({ padding: 0.2, maxZoom: 1 });
+    } catch (e) { void e; }
+  }, [nodes, POS_KEY, rfInstance]);
+
+  const loadLayout = useCallback(() => {
+    try {
+      const raw = localStorage.getItem(POS_KEY);
+      if (!raw) return false;
+      const arr = JSON.parse(raw) as Array<{id:string;x:number;y:number}>;
+      const m = new Map<string, {x:number;y:number}>();
+      arr.forEach(d => m.set(d.id, { x: d.x, y: d.y }));
+      savedPositionsRef.current = m;
+      setUseSavedPositions(m.size > 0);
+      return m.size > 0;
+    } catch (e) { void e; return false; }
+  }, [POS_KEY]);
+
+  const clearLayout = useCallback(() => {
+    try { localStorage.removeItem(POS_KEY); } catch (e) { void e; }
+    savedPositionsRef.current = new Map();
+    setUseSavedPositions(false);
+    setNodes(initialNodes);
+    setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50);
+  }, [POS_KEY, initialNodes, rfInstance, setNodes]);
+
+  // 打开时尝试加载已保存布局
+  useEffect(() => {
+    if (!open) return;
+    const ok = loadLayout();
+    if (ok) {
+      // 应用保存位置
+      setNodes(prev => prev.map(n => {
+        const p = savedPositionsRef.current.get(n.id);
+        return p ? { ...n, position: { x: p.x, y: p.y } } : n;
+      }));
+      setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 80);
+    }
+  }, [open, loadLayout, rfInstance, setNodes]);
 
   // 边悬浮提示
   const [edgeTooltip, setEdgeTooltip] = useState<{ visible: boolean; x: number; y: number; text: string }>({ visible: false, x: 0, y: 0, text: '' });
@@ -590,6 +666,12 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
                 <Button variant="outline" size="sm" onClick={() => { setNodes(initialNodes); setEdges(initialEdges); }} title="重新布局">
                   <RotateCw className="w-4 h-4 mr-1" /> 重新布局
                 </Button>
+                <Button variant="outline" size="sm" onClick={saveLayout} title="保存当前布局位置">
+                  保存布局
+                </Button>
+                <Button variant="outline" size="sm" onClick={clearLayout} title="清除保存并重置到自动布局">
+                  重置位置
+                </Button>
                 <div className="flex items-center gap-2">
                   <Input
                     placeholder="搜索节点..."
@@ -631,7 +713,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
           <ReactFlow
             nodes={nodes}
             edges={edges}
-            onNodesChange={onNodesChange}
+            onNodesChange={handleNodesChange}
             onEdgesChange={onEdgesChange}
             onNodeClick={handleNodeClick}
             onEdgeMouseEnter={(e, edge) => showEdgeTooltip(e as unknown as React.MouseEvent, edge.id)}

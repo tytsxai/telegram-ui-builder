@@ -2117,6 +2117,7 @@ const TelegramChatWithDB = () => {
         currentScreenId={currentScreenId}
         open={flowDiagramOpen}
         onOpenChange={setFlowDiagramOpen}
+        userId={user?.id || undefined}
         onScreenClick={(screenId) => {
           loadScreen(screenId);
           toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);
