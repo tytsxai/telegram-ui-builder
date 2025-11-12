@@ -17,15 +17,6 @@ const MessageBubble = forwardRef<MessageBubbleHandle, MessageBubbleProps>(({ con
   const [isFocused, setIsFocused] = useState(false);
   const lastContentRef = useRef<string>("");
 
-  useImperativeHandle(ref, () => ({
-    applyFormat: (format: 'bold' | 'italic' | 'code' | 'link', url?: string) => {
-      applyFormat(format, url);
-    },
-    focus: () => {
-      editableRef.current?.focus();
-    }
-  }));
-
   const escapeHtml = useCallback(
     (str: string) =>
       str
@@ -100,6 +91,55 @@ const MessageBubble = forwardRef<MessageBubbleHandle, MessageBubbleProps>(({ con
     container.childNodes.forEach((n) => (result += walk(n)));
     return result;
   }, []);
+
+  const applyFormat = useCallback((format: 'bold' | 'italic' | 'code' | 'link', url?: string) => {
+    if (!editableRef.current) return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const cursorPos = saveCursorPosition();
+
+    if (format === 'bold') {
+      document.execCommand('bold');
+    } else if (format === 'italic') {
+      document.execCommand('italic');
+    } else if (format === 'link') {
+      const safeUrl = (url || '').trim();
+      if (safeUrl) {
+        document.execCommand('createLink', false, safeUrl);
+      }
+    } else if (format === 'code') {
+      const text = selection.toString();
+      if (!text) return;
+      const escaped = escapeHtml(text).replace(/\n/g, '<br>');
+      const codeHTML = `<code class="bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded text-sm font-mono">${escaped}</code>`;
+      document.execCommand('insertHTML', false, codeHTML);
+    }
+
+    setTimeout(() => {
+      if (!editableRef.current) return;
+      const html = editableRef.current.innerHTML;
+      const markup = htmlToMarkup(html);
+      const formatted = formatMessage(markup);
+
+      if (editableRef.current.innerHTML !== formatted) {
+        editableRef.current.innerHTML = formatted;
+      }
+      if (cursorPos !== null) {
+        restoreCursorPosition(cursorPos);
+      }
+      lastContentRef.current = markup;
+      if (onContentChange) onContentChange(markup);
+    }, 0);
+  }, [escapeHtml, formatMessage, htmlToMarkup, onContentChange]);
+
+  useImperativeHandle(ref, () => ({
+    applyFormat,
+    focus: () => {
+      editableRef.current?.focus();
+    }
+  }));
+
 
   useEffect(() => {
     if (editableRef.current) {
@@ -214,46 +254,6 @@ const MessageBubble = forwardRef<MessageBubbleHandle, MessageBubbleProps>(({ con
     }
   };
 
-  const applyFormat = (format: 'bold' | 'italic' | 'code' | 'link', url?: string) => {
-    if (!editableRef.current) return;
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-
-    const cursorPos = saveCursorPosition();
-
-    if (format === 'bold') {
-      document.execCommand('bold');
-    } else if (format === 'italic') {
-      document.execCommand('italic');
-    } else if (format === 'link') {
-      const safeUrl = (url || '').trim();
-      if (safeUrl) {
-        document.execCommand('createLink', false, safeUrl);
-      }
-    } else if (format === 'code') {
-      const text = selection.toString();
-      if (!text) return;
-      const escaped = escapeHtml(text).replace(/\n/g, '<br>');
-      const codeHTML = `<code class="bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded text-sm font-mono">${escaped}</code>`;
-      document.execCommand('insertHTML', false, codeHTML);
-    }
-
-    setTimeout(() => {
-      if (!editableRef.current) return;
-      const html = editableRef.current.innerHTML;
-      const markup = htmlToMarkup(html);
-      const formatted = formatMessage(markup);
-
-      if (editableRef.current.innerHTML !== formatted) {
-        editableRef.current.innerHTML = formatted;
-      }
-      if (cursorPos !== null) {
-        restoreCursorPosition(cursorPos);
-      }
-      lastContentRef.current = markup;
-      if (onContentChange) onContentChange(markup);
-    }, 0);
-  };
 
   return (
     <div>
