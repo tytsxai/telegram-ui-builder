@@ -10,6 +10,7 @@ import MessageBubble, { MessageBubbleHandle } from "./MessageBubble";
 import InlineKeyboard from "./InlineKeyboard";
 import ButtonEditDialog from "./ButtonEditDialog";
 import TemplateFlowDiagram from "./TemplateFlowDiagram";
+import CircularReferenceDialog from "./CircularReferenceDialog";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -234,6 +235,8 @@ const TelegramChatWithDB = () => {
   const [lastSavedContent, setLastSavedContent] = useState({ message: "", keyboard: [] as KeyboardRow[] });
   const [isLoading, setIsLoading] = useState(false);
   const [flowDiagramOpen, setFlowDiagramOpen] = useState(false);
+  const [circularDialogOpen, setCircularDialogOpen] = useState(false);
+  const [detectedCircularPaths, setDetectedCircularPaths] = useState<Array<{ path: string[]; screenNames: string[] }>>([]);
 
   // Memo 化昂贵的计算
   const circularReferences = useMemo(() => {
@@ -398,8 +401,7 @@ const TelegramChatWithDB = () => {
     if (!user) return [];
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("screens")
+      const { data, error } = await (supabase.from as any)("screens")
         .select("*")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
@@ -535,8 +537,7 @@ const TelegramChatWithDB = () => {
     const name = newScreenName.trim() || `模版 ${screens.length + 1}`;
 
     try {
-      const { data, error } = await supabase
-        .from("screens")
+      const { data, error} = await (supabase.from as any)("screens")
         .insert([{
         user_id: user.id,
         name,
@@ -619,25 +620,19 @@ const TelegramChatWithDB = () => {
     }
 
     // 检查循环引用
-    const { hasCircle, path } = detectCircularReferences(currentScreenId, screens);
-    if (hasCircle) {
-      const pathNames = path.map(id => screens.find(s => s.id === id)?.name || id);
-      const proceed = confirm(
-        `⚠️ 检测到循环引用！\n\n` +
-        `循环路径: ${pathNames.join(' → ')}\n\n` +
-        `这可能导致用户无法退出循环。\n` +
-        `仍要保存吗？`
-      );
-      
-      if (!proceed) {
-        toast.info("已取消保存");
-        return;
-      }
+    const currentScreen = screens.find(s => s.id === currentScreenId);
+    const allCircles = findAllCircularReferences([...screens, { id: currentScreenId, name: currentScreen?.name || "", keyboard }]);
+    
+    if (allCircles.length > 0) {
+      setDetectedCircularPaths(allCircles);
+      setCircularDialogOpen(true);
+      toast.info("请先处理循环引用问题，然后重新保存");
+      setIsLoading(false);
+      return;
     }
 
     try {
-      const { error } = await supabase
-        .from("screens")
+      const { error } = await (supabase.from as any)("screens")
         .update({
           message_content: messageContent,
           keyboard,
@@ -818,8 +813,7 @@ const TelegramChatWithDB = () => {
     }
 
     try {
-      const { error } = await supabase
-        .from("screens")
+      const { error } = await (supabase.from as any)("screens")
         .delete()
         .eq("id", id)
         .eq("user_id", user.id);
@@ -906,8 +900,7 @@ const TelegramChatWithDB = () => {
 
     try {
       const shareToken = crypto.randomUUID();
-      const { error } = await supabase
-        .from("screens")
+      const { error } = await (supabase.from as any)("screens")
         .update({
           is_public: true,
           share_token: shareToken,
@@ -1025,8 +1018,7 @@ const TelegramChatWithDB = () => {
         
         for (const screen of parsed.screens) {
           const normalizedKeyboard = ensureKeyboard(screen.keyboard);
-          const { data, error } = await supabase
-            .from("screens")
+          const { data, error } = await (supabase.from as any)("screens")
             .insert([{
               user_id: user.id,
               name: `${screen.name} (导入)`,
@@ -1063,8 +1055,7 @@ const TelegramChatWithDB = () => {
           }));
           
           if (needsUpdate) {
-            await supabase
-              .from("screens")
+            await (supabase.from as any)("screens")
               .update({ keyboard: updatedKeyboard })
               .eq("id", screen.id);
           }
@@ -1146,8 +1137,7 @@ const TelegramChatWithDB = () => {
     if (!currentScreenId || !user || !renameValue.trim()) return;
 
     try {
-      const { error } = await supabase
-        .from("screens")
+      const { error } = await (supabase.from as any)("screens")
         .update({ name: renameValue.trim() })
         .eq("id", currentScreenId)
         .eq("user_id", user.id);
@@ -1901,6 +1891,23 @@ const TelegramChatWithDB = () => {
         onScreenClick={(screenId) => {
           loadScreen(screenId);
           toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);
+        }}
+      />
+
+      {/* Circular Reference Dialog */}
+      <CircularReferenceDialog
+        open={circularDialogOpen}
+        onOpenChange={setCircularDialogOpen}
+        circularPaths={detectedCircularPaths}
+        screens={screens}
+        currentScreenId={currentScreenId}
+        onNavigateToScreen={(screenId) => {
+          loadScreen(screenId);
+          toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);
+        }}
+        onOpenFlowDiagram={() => {
+          setCircularDialogOpen(false);
+          setFlowDiagramOpen(true);
         }}
       />
     </>
