@@ -141,7 +141,7 @@ const Share = () => {
           </div>
 
           <div className="p-4 min-h-[500px]">
-            <div className="inline-block max-w-[85%] space-y-4">
+            <div className="inline-block max-w-[85%]">
               <MessageBubble content={screen.message_content} readOnly />
               <InlineKeyboard keyboard={screen.keyboard} readOnly />
             </div>

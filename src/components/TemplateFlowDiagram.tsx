@@ -51,6 +51,22 @@ interface TemplateFlowDiagramProps {
   userId?: string;
 }
 
+type NodePositionPayload = { id: string; x: number; y: number };
+
+const serializePositions = (positions: NodePositionPayload[]) =>
+  positions.map((p) => `${p.id}:${Math.round(p.x)}:${Math.round(p.y)}`).join("|");
+
+const mapFromPositions = (positions: NodePositionPayload[]) => {
+  const map = new Map<string, { x: number; y: number }>();
+  positions.forEach((pos) => map.set(pos.id, { x: pos.x, y: pos.y }));
+  return map;
+};
+
+const nodesToPositions = (nodes: Node[]): NodePositionPayload[] =>
+  nodes
+    .filter((n) => typeof n.position?.x === "number" && typeof n.position?.y === "number")
+    .map((n) => ({ id: n.id, x: n.position!.x, y: n.position!.y }));
+
 const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   screens,
   currentScreenId,
@@ -76,6 +92,18 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   const POS_KEY = `diagram_positions_${userId || 'anon'}`;
   const [useSavedPositions, setUseSavedPositions] = useState<boolean>(false);
   const savedPositionsRef = useRef<Map<string, {x:number; y:number}>>(new Map());
+  const [layoutSavedAt, setLayoutSavedAt] = useState<number | null>(null);
+  const [layoutSaving, setLayoutSaving] = useState(false);
+  const lastSavedSignatureRef = useRef<string>('');
+  const autoSaveTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) {
+        window.clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, []);
 
   // 预计算循环集合
   const cycleNodeIds = useMemo(() => {
@@ -492,6 +520,39 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   const [edgeHintsMap, setEdgeHintsMap] = useState<Map<string, string>>(edgeHints);
   useEffect(() => setEdgeHintsMap(edgeHints), [edgeHints]);
 
+  const persistPositions = useCallback(async (positions: NodePositionPayload[], options?: { silent?: boolean }) => {
+    const signature = serializePositions(positions);
+    savedPositionsRef.current = mapFromPositions(positions);
+    setUseSavedPositions(positions.length > 0);
+    try {
+      localStorage.setItem(POS_KEY, JSON.stringify(positions));
+    } catch (e) { void e; }
+
+    if (!options?.silent) {
+      setLayoutSaving(true);
+    }
+
+    lastSavedSignatureRef.current = signature;
+    setLayoutSavedAt(Date.now());
+
+    if (userId) {
+      try {
+        const ids = positions.map((p) => p.id);
+        if (ids.length === 0) {
+          await supabase.from("screen_layouts").delete().eq("user_id", userId);
+        } else {
+          await supabase.from("screen_layouts").delete().eq("user_id", userId).in("screen_id", ids);
+          const payload = positions.map((p) => ({ user_id: userId, screen_id: p.id, x: p.x, y: p.y }));
+          await supabase.from("screen_layouts").upsert(payload, { onConflict: "user_id,screen_id" });
+        }
+      } catch (e) { /* ignore cloud errors */ }
+    }
+
+    if (!options?.silent) {
+      setLayoutSaving(false);
+    }
+  }, [POS_KEY, userId]);
+
   // 合并自动布局与用户布局：如已存在用户/保存的布局，保留当前坐标，仅为新增节点填充位置
   useEffect(() => {
     setNodes(prev => {
@@ -551,32 +612,11 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   }, [onNodesChange]);
 
   // 布局持久化
-  const saveLayout = useCallback(() => {
-    const data = nodes.map(n => ({ id: n.id, x: n.position.x, y: n.position.y }));
-    try {
-      localStorage.setItem(POS_KEY, JSON.stringify(data));
-      // 更新内存位置表
-      const m = new Map<string, {x:number;y:number}>();
-      data.forEach(d => m.set(d.id, { x: d.x, y: d.y }));
-      savedPositionsRef.current = m;
-      setUseSavedPositions(true);
-      rfInstance?.fitView({ padding: 0.2, maxZoom: 1 });
-    } catch (e) { void e; }
-    // 云端持久化（若可用）
-    if (userId) {
-      (async () => {
-        try {
-          // 批量保存：先清理本用户当前模板集合，再插入
-          const ids = nodes.map(n => n.id);
-          await supabase.from("screen_layouts").delete().eq("user_id", userId).in("screen_id", ids);
-          const payload = data.map(d => ({ user_id: userId, screen_id: d.id, x: d.x, y: d.y }));
-          if (payload.length > 0) {
-            await supabase.from("screen_layouts").insert(payload);
-          }
-        } catch (e) { /* ignore cloud errors */ }
-      })();
-    }
-  }, [nodes, POS_KEY, rfInstance, userId]);
+  const saveLayout = useCallback(async () => {
+    const snapshot = nodesToPositions(nodes);
+    await persistPositions(snapshot);
+    rfInstance?.fitView({ padding: 0.2, maxZoom: 1 });
+  }, [nodes, persistPositions, rfInstance]);
 
   const loadLayout = useCallback(() => {
     try {
@@ -586,8 +626,14 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       const m = new Map<string, {x:number;y:number}>();
       arr.forEach(d => m.set(d.id, { x: d.x, y: d.y }));
       savedPositionsRef.current = m;
-      setUseSavedPositions(m.size > 0);
-      return m.size > 0;
+      const hasData = m.size > 0;
+      if (hasData) {
+        const payload = arr.map(d => ({ id: d.id, x: d.x, y: d.y }));
+        lastSavedSignatureRef.current = serializePositions(payload);
+        setLayoutSavedAt(Date.now());
+      }
+      setUseSavedPositions(hasData);
+      return hasData;
     } catch (e) { void e; return false; }
   }, [POS_KEY]);
 
@@ -603,21 +649,55 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
         .in("screen_id", ids);
       if (error || !data) return false;
       const m = new Map<string, {x:number;y:number}>();
-      (data as Array<{ screen_id: string; x: number; y: number }>).forEach(row => m.set(row.screen_id, { x: row.x, y: row.y }));
+      const payload: NodePositionPayload[] = [];
+      (data as Array<{ screen_id: string; x: number; y: number }>).forEach(row => {
+        m.set(row.screen_id, { x: row.x, y: row.y });
+        payload.push({ id: row.screen_id, x: row.x, y: row.y });
+      });
       if (m.size === 0) return false;
       savedPositionsRef.current = m;
+      lastSavedSignatureRef.current = serializePositions(payload);
+      setLayoutSavedAt(Date.now());
       setUseSavedPositions(true);
       return true;
     } catch (e) { return false; }
   }, [userId, screens]);
 
-  const clearLayout = useCallback(() => {
+  const clearLayout = useCallback(async () => {
     try { localStorage.removeItem(POS_KEY); } catch (e) { void e; }
     savedPositionsRef.current = new Map();
+    lastSavedSignatureRef.current = '';
+    setLayoutSavedAt(null);
     setUseSavedPositions(false);
+    if (userId) {
+      try {
+        await supabase.from("screen_layouts").delete().eq("user_id", userId);
+      } catch (e) { /* ignore cloud errors */ }
+    }
     setNodes(initialNodes);
     setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50);
-  }, [POS_KEY, initialNodes, rfInstance, setNodes]);
+  }, [POS_KEY, initialNodes, rfInstance, setNodes, userId]);
+
+  // 自动保存：用户调整或智能整理后延迟写入，避免重复点击
+  useEffect(() => {
+    if (!open || !useSavedPositions) return;
+    const payload = nodesToPositions(nodes);
+    if (payload.length === 0) return;
+    const signature = serializePositions(payload);
+    if (signature === lastSavedSignatureRef.current) return;
+    if (autoSaveTimerRef.current) {
+      window.clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      void persistPositions(payload, { silent: true });
+    }, 800);
+    return () => {
+      if (autoSaveTimerRef.current) {
+        window.clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+    };
+  }, [nodes, open, useSavedPositions, persistPositions]);
 
   // 打开时尝试加载已保存布局
   useEffect(() => {
@@ -643,6 +723,92 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       }
     })();
   }, [open, loadLayout, loadLayoutCloud, rfInstance, setNodes]);
+
+  const runSmartArrange = useCallback(() => {
+    if (screens.length === 0) return;
+    const { nodes: gNodes } = generateRelationshipGraph(screens);
+    const levelGroups = new Map<number, string[]>();
+    gNodes.forEach(n => {
+      const arr = levelGroups.get(n.level) || [];
+      arr.push(n.id);
+      levelGroups.set(n.level, arr);
+    });
+    const levels = Array.from(levelGroups.keys()).sort((a, b) => a - b);
+    if (levels.length === 0) return;
+
+    const neighbor = new Map<string, Set<string>>();
+    const revNeighbor = new Map<string, Set<string>>();
+    screens.forEach(s => {
+      const out = new Set<string>();
+      s.keyboard.forEach(r => r.buttons.forEach(b => b.linked_screen_id && out.add(b.linked_screen_id)));
+      neighbor.set(s.id, out);
+      out.forEach(t => {
+        const set = revNeighbor.get(t) || new Set<string>();
+        set.add(s.id);
+        revNeighbor.set(t, set);
+      });
+    });
+
+    const order = new Map<number, string[]>();
+    levels.forEach(lv => {
+      const ids = (levelGroups.get(lv) || []).slice().sort((a, b) => {
+        const an = screens.find(s => s.id === a)?.name || '';
+        const bn = screens.find(s => s.id === b)?.name || '';
+        return an.localeCompare(bn, 'zh');
+      });
+      order.set(lv, ids);
+    });
+
+    const passes = 2;
+    for (let p = 0; p < passes; p++) {
+      for (let i = 1; i < levels.length; i++) {
+        const prev = order.get(levels[i - 1]) || [];
+        const cur = order.get(levels[i]) || [];
+        const idx = new Map(prev.map((id, ix) => [id, ix] as const));
+        const scored = cur.map(id => {
+          const ns = Array.from(revNeighbor.get(id) || []);
+          const vals = ns.map(n => idx.get(n)).filter(v => v !== undefined) as number[];
+          const bc = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : Infinity;
+          return { id, bc };
+        });
+        scored.sort((a, b) => (a.bc === b.bc ? 0 : (a.bc < b.bc ? -1 : 1)));
+        order.set(levels[i], scored.map(s => s.id));
+      }
+      for (let i = levels.length - 2; i >= 0; i--) {
+        const next = order.get(levels[i + 1]) || [];
+        const cur = order.get(levels[i]) || [];
+        const idx = new Map(next.map((id, ix) => [id, ix] as const));
+        const scored = cur.map(id => {
+          const ns = Array.from(neighbor.get(id) || []);
+          const vals = ns.map(n => idx.get(n)).filter(v => v !== undefined) as number[];
+          const bc = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : Infinity;
+          return { id, bc };
+        });
+        scored.sort((a, b) => (a.bc === b.bc ? 0 : (a.bc < b.bc ? -1 : 1)));
+        order.set(levels[i], scored.map(s => s.id));
+      }
+    }
+
+    const xGap = Math.round(280 * nodeScale);
+    const yGap = Math.round(180 * nodeScale);
+    const positions = new Map<string, { x: number; y: number }>();
+    levels.forEach((lv, li) => {
+      const ids = order.get(lv) || [];
+      const center = (ids.length - 1) / 2;
+      ids.forEach((id, idx) => {
+        const x = orientation === 'horizontal' ? li * xGap : idx * xGap;
+        const y = orientation === 'horizontal' ? (idx - center) * yGap : li * yGap;
+        positions.set(id, { x, y });
+      });
+    });
+    if (positions.size === 0) return;
+
+    setUseSavedPositions(true);
+    setNodes(prev => prev.map(n => positions.has(n.id) ? { ...n, position: positions.get(n.id)! } : n));
+    const payload = Array.from(positions.entries()).map(([id, coords]) => ({ id, x: coords.x, y: coords.y }));
+    void persistPositions(payload);
+    setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 80);
+  }, [screens, nodeScale, orientation, setNodes, persistPositions, rfInstance]);
 
   // 边悬浮提示
   const [edgeTooltip, setEdgeTooltip] = useState<{ visible: boolean; x: number; y: number; text: string }>({ visible: false, x: 0, y: 0, text: '' });
@@ -712,12 +878,23 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
                 <Button variant="outline" size="sm" onClick={() => { setUseSavedPositions(false); setNodes(initialNodes); setEdges(initialEdges); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} title="重新布局（自动排布）">
                   <RotateCw className="w-4 h-4 mr-1" /> 重新布局
                 </Button>
-                <Button variant="outline" size="sm" onClick={saveLayout} title="保存当前布局位置">
-                  保存布局
-                </Button>
-                <Button variant="outline" size="sm" onClick={clearLayout} title="清除保存并重置到自动布局">
-                  重置位置
-                </Button>
+                <div className="flex flex-col gap-1">
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => void saveLayout()} title="保存当前布局位置">
+                      保存布局
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => void clearLayout()} title="清除保存并重置到自动布局">
+                      重置位置
+                    </Button>
+                  </div>
+                  <span className="text-[11px] text-muted-foreground text-right">
+                    {layoutSaving
+                      ? '正在保存布局…'
+                      : layoutSavedAt
+                        ? `布局已保存 ${new Date(layoutSavedAt).toLocaleTimeString()}`
+                        : '尚未保存布局'}
+                  </span>
+                </div>
                 <div className="flex items-center gap-2">
                   <Input
                     placeholder="搜索节点..."
@@ -750,87 +927,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    // 智能整理：轻量层次-重心算法，尽量减少交叉，并适配规模
-                    const compute = () => {
-                      const { nodes: gNodes } = generateRelationshipGraph(screens);
-                      const levelGroups = new Map<number, string[]>();
-                      gNodes.forEach(n => {
-                        const arr = levelGroups.get(n.level) || [];
-                        arr.push(n.id);
-                        levelGroups.set(n.level, arr);
-                      });
-                      const levels = Array.from(levelGroups.keys()).sort((a,b)=>a-b);
-                      const neighbor = new Map<string, Set<string>>();
-                      const revNeighbor = new Map<string, Set<string>>();
-                      screens.forEach(s => {
-                        const out = new Set<string>();
-                        s.keyboard.forEach(r=>r.buttons.forEach(b=>b.linked_screen_id && out.add(b.linked_screen_id)));
-                        neighbor.set(s.id, out);
-                        out.forEach(t => {
-                          const set = revNeighbor.get(t) || new Set<string>();
-                          set.add(s.id); revNeighbor.set(t,set);
-                        });
-                      });
-                      // initial order by name
-                      const order = new Map<number, string[]>();
-                      levels.forEach(lv => {
-                        const ids = (levelGroups.get(lv) || []).slice().sort((a,b)=> (screens.find(s=>s.id===a)?.name||'').localeCompare(screens.find(s=>s.id===b)?.name||'', 'zh'));
-                        order.set(lv, ids);
-                      });
-                      const passes = 2;
-                      for (let p=0;p<passes;p++){
-                        // down pass
-                        for (let i=1;i<levels.length;i++){
-                          const prev = order.get(levels[i-1])||[];
-                          const cur = order.get(levels[i])||[];
-                          const idx = new Map(prev.map((id,ix)=>[id,ix] as const));
-                          const scored = cur.map(id=>{
-                            const ns = Array.from(revNeighbor.get(id)||[]);
-                            const vals = ns.map(n=> idx.get(n)).filter(v=> v!==undefined) as number[];
-                            const bc = vals.length? vals.reduce((a,b)=>a+b,0)/vals.length : Infinity;
-                            return {id, bc};
-                          });
-                          scored.sort((a,b)=> (a.bc===b.bc?0:(a.bc<b.bc?-1:1)));
-                          order.set(levels[i], scored.map(s=>s.id));
-                        }
-                        // up pass
-                        for (let i=levels.length-2;i>=0;i--){
-                          const next = order.get(levels[i+1])||[];
-                          const cur = order.get(levels[i])||[];
-                          const idx = new Map(next.map((id,ix)=>[id,ix] as const));
-                          const scored = cur.map(id=>{
-                            const ns = Array.from(neighbor.get(id)||[]);
-                            const vals = ns.map(n=> idx.get(n)).filter(v=> v!==undefined) as number[];
-                            const bc = vals.length? vals.reduce((a,b)=>a+b,0)/vals.length : Infinity;
-                            return {id, bc};
-                          });
-                          scored.sort((a,b)=> (a.bc===b.bc?0:(a.bc<b.bc?-1:1)));
-                          order.set(levels[i], scored.map(s=>s.id));
-                        }
-                      }
-                      // position
-                      const baseW = 220, baseH=110;
-                      const nodeW = Math.round(baseW*nodeScale);
-                      const xGap = Math.round(280*nodeScale);
-                      const yGap = Math.round(180*nodeScale);
-                      const pos = new Map<string,{x:number;y:number}>();
-                      levels.forEach((lv, li)=>{
-                        const ids = order.get(lv)||[];
-                        const center = (ids.length-1)/2;
-                        ids.forEach((id, idx)=>{
-                          const x = orientation==='horizontal'? li*xGap : idx*xGap;
-                          const y = orientation==='horizontal'? (idx-center)*yGap : li*yGap;
-                          pos.set(id,{x,y});
-                        });
-                      });
-                      return pos;
-                    };
-                    const pos = compute();
-                    setUseSavedPositions(true);
-                    setNodes(prev => prev.map(n => pos.has(n.id)? { ...n, position: pos.get(n.id)! } : n));
-                    setTimeout(()=> rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 80);
-                  }}
+                  onClick={runSmartArrange}
                   title="智能整理（自动选择并细化布局顺序）"
                 >
                   智能整理

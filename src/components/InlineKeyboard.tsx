@@ -118,7 +118,7 @@ const InlineKeyboard = ({
                   }
                 }}
                 className="w-full bg-telegram-button hover:bg-telegram-button/80 text-telegram-buttonText border-none rounded-md py-2 px-3 text-[15px] font-medium transition-colors relative overflow-hidden"
-                title={isPreviewMode ? "点击执行操作" : "双击编辑文本"}
+                title={readOnly ? "仅供预览" : isPreviewMode ? "点击执行操作" : "双击编辑文本"}
               >
                   {!readOnly && !isPreviewMode && editingButton === button.id ? (
                     <input
@@ -147,16 +147,22 @@ const InlineKeyboard = ({
                   <>
                     {/* 状态标记 */}
                     {button.linked_screen_id && (
-                      <div className="absolute -top-1 -left-1 w-3 h-3 bg-green-500 rounded-full opacity-80 group-hover:opacity-0 transition-opacity" 
-                           title="已配置跳转模版" />
+                      <div
+                        className="absolute -top-1 -left-1 w-3 h-3 bg-green-500 rounded-full opacity-90 pointer-events-none transition-opacity group-hover:opacity-90"
+                        title="已配置跳转模版"
+                      />
                     )}
                     {button.url && (
-                      <div className="absolute -top-1 -left-1 w-3 h-3 bg-blue-500 rounded-full opacity-80 group-hover:opacity-0 transition-opacity" 
-                           title="已配置URL链接" />
+                      <div
+                        className="absolute -top-1 -left-1 w-3 h-3 bg-blue-500 rounded-full opacity-90 pointer-events-none transition-opacity group-hover:opacity-90"
+                        title="已配置URL链接"
+                      />
                     )}
                     {!button.url && !button.linked_screen_id && (
-                      <div className="absolute -top-1 -left-1 w-3 h-3 bg-yellow-500 rounded-full opacity-80 group-hover:opacity-0 transition-opacity" 
-                           title="未配置跳转目标" />
+                      <div
+                        className="absolute -top-1 -left-1 w-3 h-3 bg-yellow-500 rounded-full opacity-90 pointer-events-none transition-opacity group-hover:opacity-90"
+                        title="未配置跳转目标"
+                      />
                     )}
                     
                     <button

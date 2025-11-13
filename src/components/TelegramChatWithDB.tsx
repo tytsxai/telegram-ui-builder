@@ -55,24 +55,6 @@ const ensureKeyboard = (value: unknown): KeyboardRow[] => {
   return createDefaultKeyboard();
 };
 
-const isTelegramExportPayload = (value: unknown): value is TelegramExportPayload => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  if (typeof record.text !== "string") {
-    return false;
-  }
-  if (!record.reply_markup) {
-    return true;
-  }
-  const replyMarkup = record.reply_markup as Record<string, unknown>;
-  if (!replyMarkup.inline_keyboard) {
-    return true;
-  }
-  return isTelegramKeyboard(replyMarkup.inline_keyboard);
-};
-
 const buildKeyboardFromTelegram = (inlineKeyboard: TelegramImportButton[][]): KeyboardRow[] => {
   const timestamp = Date.now();
   return inlineKeyboard.map((row, rowIndex) => ({
@@ -131,6 +113,24 @@ const isTelegramImportButton = (value: unknown): value is TelegramImportButton =
 const isTelegramKeyboard = (value: unknown): value is TelegramImportButton[][] =>
   Array.isArray(value) && value.every((row) => Array.isArray(row) && row.every(isTelegramImportButton));
 
+const isTelegramExportPayload = (value: unknown): value is TelegramExportPayload => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.text !== "string") {
+    return false;
+  }
+  if (!record.reply_markup) {
+    return true;
+  }
+  const replyMarkup = record.reply_markup as Record<string, unknown>;
+  if (!replyMarkup.inline_keyboard) {
+    return true;
+  }
+  return isTelegramKeyboard(replyMarkup.inline_keyboard);
+};
+
 interface Screen {
   id: string;
   name: string;
@@ -183,6 +183,7 @@ interface TelegramImportButton {
 const TelegramChatWithDB = () => {
   const navigate = useNavigate();
   const messageBubbleRef = useRef<MessageBubbleHandle>(null);
+  const updateEditableJSONRef = useRef<() => void>();
   const [user, setUser] = useState<User | null>(null);
   
   // 使用撤销/重做管理编辑器状态
@@ -226,6 +227,42 @@ const TelegramChatWithDB = () => {
   const [renameValue, setRenameValue] = useState("");
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [editableJSON, setEditableJSON] = useState("");
+  const convertToTelegramFormat = (): TelegramExportPayload => {
+    const text = messageContent
+      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')  // Bold
+      .replace(/`(.*?)`/g, '<code>$1</code>')  // Code
+      .replace(/_(.*?)_/g, '<i>$1</i>');       // Italic
+
+    const reply_markup = keyboard.length > 0 ? {
+      inline_keyboard: keyboard.map(row =>
+        row.buttons.map(btn => {
+          const btnData: TelegramExportButton = { text: btn.text };
+          if (btn.url) {
+            btnData.url = btn.url;
+          } else if (btn.linked_screen_id) {
+            btnData.callback_data = `goto_screen_${btn.linked_screen_id}`;
+          } else {
+            btnData.callback_data = btn.callback_data || btn.text.toLowerCase().replace(/\s+/g, '_');
+          }
+          return btnData;
+        })
+      )
+    } : undefined;
+
+    return {
+      text,
+      parse_mode: "HTML",
+      ...(reply_markup && { reply_markup })
+    };
+  };
+
+  const updateEditableJSON = () => {
+    setEditableJSON(JSON.stringify(convertToTelegramFormat(), null, 2));
+  };
+
+  useEffect(() => {
+    updateEditableJSONRef.current = updateEditableJSON;
+  });
   const [navigationHistory, setNavigationHistory] = useState<string[]>([]);
   const [buttonEditDialogOpen, setButtonEditDialogOpen] = useState(false);
   const [editingButtonData, setEditingButtonData] = useState<{
@@ -301,8 +338,9 @@ const TelegramChatWithDB = () => {
     try { localStorage.setItem(PINNED_KEY, JSON.stringify(ids)); } catch (e) { void e; }
   }, [PINNED_KEY]);
 
-  const reorderByPinned = useCallback((list: Screen[]) => {
-    const set = new Set(pinnedIds);
+  const reorderByPinned = useCallback((list: Screen[], customPinned?: string[]) => {
+    const activePinned = customPinned ?? pinnedIds;
+    const set = new Set(activePinned);
     type WithMeta = Screen & { created_at?: string };
     const getCreatedAt = (s: WithMeta) => typeof s.created_at === 'string' ? Date.parse(s.created_at) : 0;
     return [...list].sort((a: WithMeta, b: WithMeta) => {
@@ -329,7 +367,7 @@ const TelegramChatWithDB = () => {
       if (Array.isArray(arr)) {
         setPinnedIds(arr);
         persistPinned(arr);
-        setScreens(curr => reorderByPinned(curr));
+        setScreens(curr => reorderByPinned(curr, arr));
       }
     } catch (e) { /* ignore */ }
   }, [user, persistPinned, reorderByPinned]);
@@ -428,72 +466,6 @@ const TelegramChatWithDB = () => {
     const savedState = JSON.stringify(lastSavedContent);
     setHasUnsavedChanges(currentState !== savedState);
   }, [messageContent, keyboard, lastSavedContent]);
-
-  // 全局快捷键支持 - 使用 useRef 避免闭包陷阱
-  const handlersRef = useRef<{
-    updateScreen: () => Promise<void>;
-    saveScreen: () => Promise<void>;
-    createNewScreen: () => void;
-    handleModeToggle: () => void;
-  }>();
-  
-  // 始终保持最新的函数引用
-  useEffect(() => {
-    handlersRef.current = {
-      updateScreen,
-      saveScreen,
-      createNewScreen,
-      handleModeToggle,
-    };
-  });
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+Z / Cmd+Z - 撤销
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        if (canUndo && !isPreviewMode) {
-          undo();
-          toast.info('↶ 已撤销');
-        }
-      }
-      
-      // Ctrl+Shift+Z / Ctrl+Y / Cmd+Shift+Z - 重做
-      if (((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z') || 
-          (e.ctrlKey && e.key === 'y')) {
-        e.preventDefault();
-        if (canRedo && !isPreviewMode) {
-          redo();
-          toast.info('↷ 已重做');
-        }
-      }
-      
-      // Ctrl+S / Cmd+S - 保存
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        if (currentScreenId) {
-          handlersRef.current.updateScreen();
-        } else {
-          handlersRef.current.saveScreen();
-        }
-      }
-      
-      // Ctrl+N / Cmd+N - 新建
-      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
-        e.preventDefault();
-        handlersRef.current.createNewScreen();
-      }
-      
-      // Ctrl+P / Cmd+P - 切换预览模式
-      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
-        e.preventDefault();
-        handlersRef.current.handleModeToggle();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canUndo, canRedo, undo, redo, currentScreenId, isPreviewMode]);
 
   // 页面加载时尝试恢复自动保存的数据 - 修复：使用独立标志位跟踪加载状态
   const [screensLoaded, setScreensLoaded] = useState(false);
@@ -623,8 +595,6 @@ const TelegramChatWithDB = () => {
  
 
   // 模式切换处理 - 修复：添加 updateEditableJSON 依赖
-  const updateEditableJSONRef = useRef<() => void>();
-  
   const handleModeToggle = useCallback(() => {
     if (hasUnsavedChanges) {
       const confirmed = confirm(
@@ -950,6 +920,27 @@ const TelegramChatWithDB = () => {
     toast.success(`⬅️ 返回到: ${validScreen.name}`);
   };
 
+  const createNewScreen = () => {
+    if (hasUnsavedChanges) {
+      const confirmed = confirm("⚠️ 当前有未保存的更改，新建模版会丢失这些更改。\n\n是否继续？");
+      if (!confirmed) {
+        return;
+      }
+    }
+    
+    setEditorState({
+      messageContent: DEFAULT_MESSAGE,
+      keyboard: createDefaultKeyboard(),
+    });
+    setCurrentScreenId(undefined);
+    setNewScreenName("");
+    setLastSavedContent({ message: DEFAULT_MESSAGE, keyboard: createDefaultKeyboard() });
+    setHasUnsavedChanges(false);
+    resetHistory({ messageContent: DEFAULT_MESSAGE, keyboard: createDefaultKeyboard() });
+    setNavigationHistory([]);
+    clearLocalStorage();
+  };
+
   const deleteScreen = async (id: string) => {
     if (!user) return;
     
@@ -1024,29 +1015,15 @@ const TelegramChatWithDB = () => {
     }
   };
 
-  const createNewScreen = () => {
-    // 检查未保存的更改
-    if (hasUnsavedChanges) {
-      const confirmed = confirm("⚠️ 当前有未保存的更改，新建模版会丢失这些更改。\n\n是否继续？");
-      if (!confirmed) {
-        return;
-      }
-    }
-    
-    setEditorState({
-      messageContent: DEFAULT_MESSAGE,
-      keyboard: createDefaultKeyboard(),
-    });
-    setCurrentScreenId(undefined);
-    setNewScreenName("");
-    setLastSavedContent({ message: DEFAULT_MESSAGE, keyboard: createDefaultKeyboard() });
-    setHasUnsavedChanges(false);
-    resetHistory({ messageContent: DEFAULT_MESSAGE, keyboard: createDefaultKeyboard() });
-    setNavigationHistory([]);
-    clearLocalStorage();
-  };
+  // 全局快捷键支持 - 使用 useRef 避免闭包陷阱
+  const handlersRef = useRef<{
+    updateScreen: () => Promise<void>;
+    saveScreen: () => Promise<void>;
+    createNewScreen: () => void;
+    handleModeToggle: () => void;
+  }>();
 
-  // 修复：保持 handlersRef 始终引用最新的函数
+  // 始终保持最新的函数引用
   useEffect(() => {
     handlersRef.current = {
       updateScreen,
@@ -1055,6 +1032,49 @@ const TelegramChatWithDB = () => {
       handleModeToggle,
     };
   });
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        if (canUndo && !isPreviewMode) {
+          undo();
+          toast.info('↶ 已撤销');
+        }
+      }
+
+      if (((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z') ||
+          (e.ctrlKey && e.key === 'y')) {
+        e.preventDefault();
+        if (canRedo && !isPreviewMode) {
+          redo();
+          toast.info('↷ 已重做');
+        }
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (currentScreenId) {
+          handlersRef.current?.updateScreen?.();
+        } else {
+          handlersRef.current?.saveScreen?.();
+        }
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+        e.preventDefault();
+        handlersRef.current?.createNewScreen?.();
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault();
+        handlersRef.current?.handleModeToggle?.();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canUndo, canRedo, undo, redo, currentScreenId, isPreviewMode]);
 
   const shareScreen = async () => {
     if (!currentScreenId || !user) {
@@ -1095,38 +1115,6 @@ const TelegramChatWithDB = () => {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate("/auth");
-  };
-
-  const convertToTelegramFormat = (): TelegramExportPayload => {
-    // Convert markdown-style formatting to Telegram HTML
-    const text = messageContent
-      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')  // Bold
-      .replace(/`(.*?)`/g, '<code>$1</code>')  // Code
-      .replace(/_(.*?)_/g, '<i>$1</i>');       // Italic
-
-    // Convert keyboard to Telegram format
-    const reply_markup = keyboard.length > 0 ? {
-      inline_keyboard: keyboard.map(row => 
-        row.buttons.map(btn => {
-          const btnData: TelegramExportButton = { text: btn.text };
-          if (btn.url) {
-            btnData.url = btn.url;
-          } else if (btn.linked_screen_id) {
-            // For linked screens, use a special callback_data format
-            btnData.callback_data = `goto_screen_${btn.linked_screen_id}`;
-          } else {
-            btnData.callback_data = btn.callback_data || btn.text.toLowerCase().replace(/\s+/g, '_');
-          }
-          return btnData;
-        })
-      )
-    } : undefined;
-
-    return {
-      text,
-      parse_mode: "HTML",
-      ...(reply_markup && { reply_markup })
-    };
   };
 
   const exportFlowAsJSON = () => {
@@ -1297,16 +1285,6 @@ const TelegramChatWithDB = () => {
       toast.error("JSON 格式无效");
     }
   };
-
-  // Update editable JSON when content changes
-  const updateEditableJSON = () => {
-    setEditableJSON(JSON.stringify(convertToTelegramFormat(), null, 2));
-  };
-  
-  // 保持 ref 始终指向最新函数
-  useEffect(() => {
-    updateEditableJSONRef.current = updateEditableJSON;
-  });
 
   const handleRenameScreen = async () => {
     if (!currentScreenId || !user || !renameValue.trim()) return;
@@ -1887,8 +1865,8 @@ const TelegramChatWithDB = () => {
                         : [...prev, currentScreenId];
                       persistPinned(next);
                       savePinnedCloud(next);
-                      // 仅本地重排
-                      setScreens(curr => reorderByPinned(curr));
+                      // 仅本地重排，使用最新置顶结果
+                      setScreens(curr => reorderByPinned(curr, next));
                       return next;
                     });
                   }}
