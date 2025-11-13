@@ -576,7 +576,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
         } catch (e) { /* ignore cloud errors */ }
       })();
     }
-  }, [nodes, POS_KEY, rfInstance]);
+  }, [nodes, POS_KEY, rfInstance, userId]);
 
   const loadLayout = useCallback(() => {
     try {
@@ -751,25 +751,87 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    // 智能整理：根据规模选择最佳模式并应用
-                    const { nodes: gNodes } = generateRelationshipGraph(screens);
-                    const levels = new Set<number>();
-                    gNodes.forEach(n => levels.add(n.level));
-                    const levelCount = levels.size;
-                    const nodeCount = screens.length;
-                    if (nodeCount >= 15 || levelCount >= 5) {
-                      setMindMapMode(true);
-                      setOrientation('vertical');
-                    } else {
-                      setMindMapMode(false);
-                      setOrientation('horizontal');
-                    }
-                    setUseSavedPositions(false);
-                    setNodes(initialNodes);
-                    setEdges(initialEdges);
-                    setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 80);
+                    // 智能整理：轻量层次-重心算法，尽量减少交叉，并适配规模
+                    const compute = () => {
+                      const { nodes: gNodes } = generateRelationshipGraph(screens);
+                      const levelGroups = new Map<number, string[]>();
+                      gNodes.forEach(n => {
+                        const arr = levelGroups.get(n.level) || [];
+                        arr.push(n.id);
+                        levelGroups.set(n.level, arr);
+                      });
+                      const levels = Array.from(levelGroups.keys()).sort((a,b)=>a-b);
+                      const neighbor = new Map<string, Set<string>>();
+                      const revNeighbor = new Map<string, Set<string>>();
+                      screens.forEach(s => {
+                        const out = new Set<string>();
+                        s.keyboard.forEach(r=>r.buttons.forEach(b=>b.linked_screen_id && out.add(b.linked_screen_id)));
+                        neighbor.set(s.id, out);
+                        out.forEach(t => {
+                          const set = revNeighbor.get(t) || new Set<string>();
+                          set.add(s.id); revNeighbor.set(t,set);
+                        });
+                      });
+                      // initial order by name
+                      const order = new Map<number, string[]>();
+                      levels.forEach(lv => {
+                        const ids = (levelGroups.get(lv) || []).slice().sort((a,b)=> (screens.find(s=>s.id===a)?.name||'').localeCompare(screens.find(s=>s.id===b)?.name||'', 'zh'));
+                        order.set(lv, ids);
+                      });
+                      const passes = 2;
+                      for (let p=0;p<passes;p++){
+                        // down pass
+                        for (let i=1;i<levels.length;i++){
+                          const prev = order.get(levels[i-1])||[];
+                          const cur = order.get(levels[i])||[];
+                          const idx = new Map(prev.map((id,ix)=>[id,ix] as const));
+                          const scored = cur.map(id=>{
+                            const ns = Array.from(revNeighbor.get(id)||[]);
+                            const vals = ns.map(n=> idx.get(n)).filter(v=> v!==undefined) as number[];
+                            const bc = vals.length? vals.reduce((a,b)=>a+b,0)/vals.length : Infinity;
+                            return {id, bc};
+                          });
+                          scored.sort((a,b)=> (a.bc===b.bc?0:(a.bc<b.bc?-1:1)));
+                          order.set(levels[i], scored.map(s=>s.id));
+                        }
+                        // up pass
+                        for (let i=levels.length-2;i>=0;i--){
+                          const next = order.get(levels[i+1])||[];
+                          const cur = order.get(levels[i])||[];
+                          const idx = new Map(next.map((id,ix)=>[id,ix] as const));
+                          const scored = cur.map(id=>{
+                            const ns = Array.from(neighbor.get(id)||[]);
+                            const vals = ns.map(n=> idx.get(n)).filter(v=> v!==undefined) as number[];
+                            const bc = vals.length? vals.reduce((a,b)=>a+b,0)/vals.length : Infinity;
+                            return {id, bc};
+                          });
+                          scored.sort((a,b)=> (a.bc===b.bc?0:(a.bc<b.bc?-1:1)));
+                          order.set(levels[i], scored.map(s=>s.id));
+                        }
+                      }
+                      // position
+                      const baseW = 220, baseH=110;
+                      const nodeW = Math.round(baseW*nodeScale);
+                      const xGap = Math.round(280*nodeScale);
+                      const yGap = Math.round(180*nodeScale);
+                      const pos = new Map<string,{x:number;y:number}>();
+                      levels.forEach((lv, li)=>{
+                        const ids = order.get(lv)||[];
+                        const center = (ids.length-1)/2;
+                        ids.forEach((id, idx)=>{
+                          const x = orientation==='horizontal'? li*xGap : idx*xGap;
+                          const y = orientation==='horizontal'? (idx-center)*yGap : li*yGap;
+                          pos.set(id,{x,y});
+                        });
+                      });
+                      return pos;
+                    };
+                    const pos = compute();
+                    setUseSavedPositions(true);
+                    setNodes(prev => prev.map(n => pos.has(n.id)? { ...n, position: pos.get(n.id)! } : n));
+                    setTimeout(()=> rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 80);
                   }}
-                  title="智能整理（自动选择最佳布局）"
+                  title="智能整理（自动选择并细化布局顺序）"
                 >
                   智能整理
                 </Button>
