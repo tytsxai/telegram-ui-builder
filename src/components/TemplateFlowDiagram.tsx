@@ -20,6 +20,8 @@ import { Slider } from '@/components/ui/slider';
 import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown, Maximize2, Minimize2 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { findAllCircularReferences, generateRelationshipGraph } from '@/lib/referenceChecker';
+import { supabase } from '@/integrations/supabase/client';
+import { fromUnsafe } from '@/integrations/supabase/unsafe';
 
 interface Screen {
   id: string;
@@ -561,6 +563,20 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       setUseSavedPositions(true);
       rfInstance?.fitView({ padding: 0.2, maxZoom: 1 });
     } catch (e) { void e; }
+    // 云端持久化（若可用）
+    if (userId) {
+      (async () => {
+        try {
+          // 批量保存：先清理本用户当前模板集合，再插入
+          const ids = nodes.map(n => n.id);
+          await fromUnsafe(supabase)("screen_layouts").delete().eq("user_id", userId).in("screen_id", ids);
+          const payload = data.map(d => ({ user_id: userId, screen_id: d.id, x: d.x, y: d.y }));
+          if (payload.length > 0) {
+            await fromUnsafe(supabase)("screen_layouts").insert(payload);
+          }
+        } catch (e) { /* ignore cloud errors */ }
+      })();
+    }
   }, [nodes, POS_KEY, rfInstance]);
 
   const loadLayout = useCallback(() => {
@@ -575,6 +591,25 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       return m.size > 0;
     } catch (e) { void e; return false; }
   }, [POS_KEY]);
+
+  const loadLayoutCloud = useCallback(async () => {
+    if (!userId) return false;
+    try {
+      const ids = screens.map(s => s.id);
+      if (ids.length === 0) return false;
+      const { data, error } = await fromUnsafe(supabase)("screen_layouts")
+        .select("screen_id,x,y")
+        .eq("user_id", userId)
+        .in("screen_id", ids);
+      if (error || !data) return false;
+      const m = new Map<string, {x:number;y:number}>();
+      (data as Array<{ screen_id: string; x: number; y: number }>).forEach(row => m.set(row.screen_id, { x: row.x, y: row.y }));
+      if (m.size === 0) return false;
+      savedPositionsRef.current = m;
+      setUseSavedPositions(true);
+      return true;
+    } catch (e) { return false; }
+  }, [userId, screens]);
 
   const clearLayout = useCallback(() => {
     try { localStorage.removeItem(POS_KEY); } catch (e) { void e; }
@@ -596,7 +631,18 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       }));
       setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 80);
     }
-  }, [open, loadLayout, rfInstance, setNodes]);
+    // 云端加载（优先级高于本地）
+    (async () => {
+      const okCloud = await loadLayoutCloud();
+      if (okCloud) {
+        setNodes(prev => prev.map(n => {
+          const p = savedPositionsRef.current.get(n.id);
+          return p ? { ...n, position: { x: p.x, y: p.y } } : n;
+        }));
+        setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 80);
+      }
+    })();
+  }, [open, loadLayout, loadLayoutCloud, rfInstance, setNodes]);
 
   // 边悬浮提示
   const [edgeTooltip, setEdgeTooltip] = useState<{ visible: boolean; x: number; y: number; text: string }>({ visible: false, x: 0, y: 0, text: '' });
@@ -663,7 +709,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
                   <span className="text-muted-foreground">直线边</span>
                   <Switch checked={edgeStraight} onCheckedChange={v => setEdgeStraight(!!v)} />
                 </div>
-                <Button variant="outline" size="sm" onClick={() => { setNodes(initialNodes); setEdges(initialEdges); }} title="重新布局">
+                <Button variant="outline" size="sm" onClick={() => { setUseSavedPositions(false); setNodes(initialNodes); setEdges(initialEdges); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} title="重新布局（自动排布）">
                   <RotateCw className="w-4 h-4 mr-1" /> 重新布局
                 </Button>
                 <Button variant="outline" size="sm" onClick={saveLayout} title="保存当前布局位置">

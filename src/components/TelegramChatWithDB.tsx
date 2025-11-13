@@ -301,6 +301,33 @@ const TelegramChatWithDB = () => {
     try { localStorage.setItem(PINNED_KEY, JSON.stringify(ids)); } catch (e) { void e; }
   }, [PINNED_KEY]);
 
+  // 云端置顶（可用则同步；失败则忽略）
+  const loadPinnedCloud = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await fromUnsafe(supabase)("user_pins")
+        .select("pinned_ids")
+        .eq("user_id", user.id)
+        .single();
+      if (error || !data) return;
+      const arr = (data as { pinned_ids: string[] | null }).pinned_ids;
+      if (Array.isArray(arr)) {
+        setPinnedIds(arr);
+        persistPinned(arr);
+        setScreens(curr => reorderByPinned(curr));
+      }
+    } catch (e) { /* ignore */ }
+  }, [user, persistPinned, reorderByPinned]);
+
+  const savePinnedCloud = useCallback(async (ids: string[]) => {
+    if (!user) return;
+    try {
+      const payload: { user_id: string; pinned_ids: string[] } = { user_id: user.id, pinned_ids: ids };
+      // upsert
+      await fromUnsafe(supabase)("user_pins").upsert(payload, { onConflict: "user_id" });
+    } catch (e) { /* ignore */ }
+  }, [user]);
+
   const isPinned = useCallback((id?: string) => !!id && pinnedIds.includes(id), [pinnedIds]);
 
   const reorderByPinned = useCallback((list: Screen[]) => {
@@ -545,6 +572,11 @@ const TelegramChatWithDB = () => {
       loadScreens().finally(() => setScreensLoaded(true));
     }
   }, [user, screensLoaded, loadScreens]);
+
+  // 登录后尝试同步云端置顶
+  useEffect(() => {
+    loadPinnedCloud();
+  }, [loadPinnedCloud]);
 
   useEffect(() => {
     // 确保用户已登录、screens 已首次加载完成、且没有当前打开的模板
@@ -1845,6 +1877,7 @@ const TelegramChatWithDB = () => {
                         ? prev.filter(id => id !== currentScreenId)
                         : [...prev, currentScreenId];
                       persistPinned(next);
+                      savePinnedCloud(next);
                       // 仅本地重排
                       setScreens(curr => reorderByPinned(curr));
                       return next;
