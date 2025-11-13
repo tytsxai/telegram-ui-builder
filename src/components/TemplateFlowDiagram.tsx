@@ -747,6 +747,32 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
                 <Button variant="outline" size="sm" onClick={() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 })} title="重置视图">
                   重置视图
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    // 智能整理：根据规模选择最佳模式并应用
+                    const { nodes: gNodes } = generateRelationshipGraph(screens);
+                    const levels = new Set<number>();
+                    gNodes.forEach(n => levels.add(n.level));
+                    const levelCount = levels.size;
+                    const nodeCount = screens.length;
+                    if (nodeCount >= 15 || levelCount >= 5) {
+                      setMindMapMode(true);
+                      setOrientation('vertical');
+                    } else {
+                      setMindMapMode(false);
+                      setOrientation('horizontal');
+                    }
+                    setUseSavedPositions(false);
+                    setNodes(initialNodes);
+                    setEdges(initialEdges);
+                    setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 80);
+                  }}
+                  title="智能整理（自动选择最佳布局）"
+                >
+                  智能整理
+                </Button>
                 <Button variant="outline" size="sm" onClick={() => { setFullscreen(f => !f); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} title={fullscreen ? "退出全屏" : "全屏显示"}>
                   {fullscreen ? <Minimize2 className="w-4 h-4 mr-1" /> : <Maximize2 className="w-4 h-4 mr-1" />}
                   {fullscreen ? '退出全屏' : '全屏'}
