@@ -21,6 +21,7 @@ import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown, M
 import { Switch } from '@/components/ui/switch';
 import { findAllCircularReferences, generateRelationshipGraph } from '@/lib/referenceChecker';
 import { supabase } from '@/integrations/supabase/client';
+import dagre from '@dagrejs/dagre';
 
 interface Screen {
   id: string;
@@ -740,11 +741,11 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
 
     const nodeCount = screens.length;
     const levelCount = levels.length;
-    const useRadial = nodeCount >= 20 || levelCount >= 6;
-    const shouldMindMap = useRadial || nodeCount >= 15 || levelCount >= 5;
+    const useRadial = nodeCount >= 24 || levelCount >= 6;
+    const shouldMindMap = !useRadial && (nodeCount >= 14 || levelCount >= 5);
     setMindMapMode(shouldMindMap);
     setOrientation(shouldMindMap ? 'horizontal' : (levelCount >= 5 ? 'vertical' : orientation));
-    if (nodeCount > 25) {
+    if (nodeCount > 20) {
       setShowButtonLabels(false);
       setEdgeStraight(true);
     }
@@ -910,17 +911,56 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
         });
       }
     } else {
-      const xGap = Math.round(260 * nodeScale);
-      const yGap = Math.round(160 * nodeScale);
-      levels.forEach((lv, li) => {
-        const ids = order.get(lv) || [];
-        const center = (ids.length - 1) / 2;
-        ids.forEach((id, idx) => {
-          const x = orientation === 'horizontal' ? li * xGap : idx * xGap;
-          const y = orientation === 'horizontal' ? (idx - center) * yGap : li * yGap;
-          positions.set(id, { x, y });
+      const dagreGraph = new dagre.graphlib.Graph();
+      dagreGraph.setGraph({
+        rankdir: orientation === 'horizontal' ? 'LR' : 'TB',
+        ranksep: 220 * nodeScale,
+        nodesep: 140 * nodeScale,
+        marginx: 60,
+        marginy: 60,
+      });
+      dagreGraph.setDefaultEdgeLabel(() => ({}));
+      const approxWidth = 220 * nodeScale;
+      const approxHeight = 110 * nodeScale;
+
+      screens.forEach(screen => {
+        dagreGraph.setNode(screen.id, { width: approxWidth, height: approxHeight });
+      });
+      screens.forEach(screen => {
+        screen.keyboard.forEach(row => {
+          row.buttons.forEach(btn => {
+            if (btn.linked_screen_id && screens.find(s => s.id === btn.linked_screen_id)) {
+              dagreGraph.setEdge(screen.id, btn.linked_screen_id);
+            }
+          });
         });
       });
+
+      try {
+        dagre.layout(dagreGraph);
+        screens.forEach(screen => {
+          const node = dagreGraph.node(screen.id);
+          if (node) {
+            positions.set(screen.id, {
+              x: node.x - node.width / 2,
+              y: node.y - node.height / 2,
+            });
+          }
+        });
+      } catch (error) {
+        console.error('[FlowDiagram] Dagre layout failed', error);
+        const xGap = Math.round(260 * nodeScale);
+        const yGap = Math.round(160 * nodeScale);
+        levels.forEach((lv, li) => {
+          const ids = order.get(lv) || [];
+          const center = (ids.length - 1) / 2;
+          ids.forEach((id, idx) => {
+            const x = orientation === 'horizontal' ? li * xGap : idx * xGap;
+            const y = orientation === 'horizontal' ? (idx - center) * yGap : li * yGap;
+            positions.set(id, { x, y });
+          });
+        });
+      }
     }
 
     if (positions.size === 0) return;
