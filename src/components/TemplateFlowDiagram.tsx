@@ -994,7 +994,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
         className={
           fullscreen
             ? "w-[100vw] h-[100vh] max-w-none max-h-none p-0 gap-0 flex flex-col rounded-none"
-            : "w-[96vw] h-[88vh] max-w-[96vw] max-h-[96vh] p-0 gap-0 flex flex-col"
+            : "w-[98vw] h-[92vh] max-w-[98vw] max-h-[92vh] p-0 gap-0 flex flex-col"
         }
       >
         <DialogHeader className="px-6 py-4 border-b">
@@ -1102,7 +1102,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
             </div>
           </DialogTitle>
         </DialogHeader>
-        <div className="flex-1 relative" ref={diagramRef}>
+        <div className="flex-1 relative overflow-hidden" ref={diagramRef}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -1114,7 +1114,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
             onEdgeMouseLeave={hideEdgeTooltip}
             onInit={(inst) => setRfInstance(inst)}
             fitView
-            fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+            fitViewOptions={{ padding: 0.4, maxZoom: 1 }}
             minZoom={0.1}
             maxZoom={2}
             attributionPosition="bottom-left"
