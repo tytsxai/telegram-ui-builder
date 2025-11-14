@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, type ChangeEvent } from "react";
 import type { User } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -184,6 +184,7 @@ const TelegramChatWithDB = () => {
   const navigate = useNavigate();
   const messageBubbleRef = useRef<MessageBubbleHandle>(null);
   const updateEditableJSONRef = useRef<() => void>();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [user, setUser] = useState<User | null>(null);
   
   // 使用撤销/重做管理编辑器状态
@@ -1163,9 +1164,15 @@ const TelegramChatWithDB = () => {
     toast.success("JSON 已复制到剪贴板！");
   };
 
-  const handleImportJSON = async () => {
+  const processImportedJSON = async (rawJSON: string) => {
+    const jsonToParse = rawJSON.trim();
+    if (!jsonToParse) {
+      toast.error("请先粘贴或选择 JSON 数据");
+      return;
+    }
+
     try {
-      const parsed: unknown = JSON.parse(importJSON);
+      const parsed: unknown = JSON.parse(jsonToParse);
       
       // Check if it's a flow export
       if (isFlowExportPayload(parsed)) {
@@ -1178,12 +1185,14 @@ const TelegramChatWithDB = () => {
         const oldIdToNewId: Record<string, string> = {};
         
         for (const screen of parsed.screens) {
+          const baseName = screen.name.replace(/\s*(?:\(导入\))+$/g, "");
+          const normalizedName = `${baseName} (导入)`;
           const normalizedKeyboard = ensureKeyboard(screen.keyboard);
           const { data, error } = await supabase
             .from("screens")
             .insert([{
               user_id: user.id,
-              name: `${screen.name} (导入)`,
+              name: normalizedName,
               message_content: screen.message_content,
               keyboard: normalizedKeyboard,
               is_public: false,
@@ -1258,6 +1267,26 @@ const TelegramChatWithDB = () => {
     } catch (error) {
       console.error(error);
       toast.error("JSON 格式无效或导入失败");
+    }
+  };
+
+  const handleImportJSON = async () => {
+    await processImportedJSON(importJSON);
+  };
+
+  const handleImportFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      setImportJSON(text);
+      await processImportedJSON(text);
+    } catch (error) {
+      console.error(error);
+      toast.error("JSON 文件读取失败");
+    } finally {
+      event.target.value = "";
     }
   };
 
@@ -1632,6 +1661,25 @@ const TelegramChatWithDB = () => {
                 rows={10}
                 className="font-mono text-xs"
               />
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={handleImportFileSelect}
+              />
+              <Button
+                variant="secondary"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full sm:w-auto"
+              >
+                选择 JSON 文件
+              </Button>
+              <p className="text-xs text-muted-foreground sm:text-right">
+                支持直接选择从本工具导出的 JSON 文件
+              </p>
             </div>
           </div>
           <DialogFooter>
