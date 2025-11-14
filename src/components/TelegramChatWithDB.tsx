@@ -1865,19 +1865,19 @@ const TelegramChatWithDB = () => {
         <div className="w-full max-w-md">
         {/* Builder Controls */}
         <div className="mb-4 bg-card text-card-foreground p-3 rounded-lg shadow-sm">
-          <div className="flex justify-between items-center mb-2">
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold">Telegram UI 构建器</h1>
-              {hasUnsavedChanges && (
-                <span className="text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full animate-pulse">
-                  未保存
-                </span>
-              )}
-            </div>
-            <Button onClick={handleLogout} variant="ghost" size="sm">
-              <LogOut className="w-4 h-4" />
-            </Button>
-          </div>
+              <div className="flex justify-between items-center mb-3">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-lg font-bold">Telegram UI 构建器</h1>
+                  {hasUnsavedChanges && (
+                    <span className="text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full animate-pulse">
+                      未保存
+                    </span>
+                  )}
+                </div>
+                <Button onClick={handleLogout} variant="ghost" size="sm">
+                  <LogOut className="w-4 h-4" />
+                </Button>
+              </div>
           {loadIssue && (
             <Alert className="mb-2 border-amber-500/50 bg-amber-500/10">
               <AlertCircle className="h-4 w-4 text-amber-600" />
@@ -1963,35 +1963,43 @@ const TelegramChatWithDB = () => {
             </div>
           )}
           
-          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-            <Input
-              placeholder="模版名称"
-              value={newScreenName}
-              onChange={(e) => setNewScreenName(e.target.value)}
-              className="sm:max-w-xs"
-            />
-            <Button 
-              onClick={currentScreenId ? updateScreen : saveScreen} 
-              className="sm:w-auto" 
-              title="保存 (Ctrl+S)"
-              disabled={isLoading}
-            >
-              <Save className="w-4 h-4 mr-2" /> 
-              {isLoading ? "保存中..." : (currentScreenId ? "更新" : "保存")}
-            </Button>
-            <Button onClick={createNewScreen} variant="outline" className="sm:w-auto" title="新建 (Ctrl+N)">
-              <FileText className="w-4 h-4 mr-2" /> 新建
-            </Button>
-            {/* 允许循环引用开关 */}
-            <div className="flex items-center gap-2 ml-auto">
-              <Label htmlFor="allow-circular" className="text-xs text-muted-foreground">允许循环引用</Label>
-              <Switch
-                id="allow-circular"
-                checked={allowCircular}
-                onCheckedChange={(v) => setAllowCircular(!!v)}
-              />
-            </div>
-          </div>
+              <div className="space-y-3">
+                <div className="flex flex-col md:flex-row gap-2">
+                  <Input
+                    placeholder="模版名称"
+                    value={newScreenName}
+                    onChange={(e) => setNewScreenName(e.target.value)}
+                    className="flex-1 min-w-0"
+                  />
+                  <div className="flex gap-2">
+                    <Button 
+                      onClick={currentScreenId ? updateScreen : saveScreen} 
+                      className="flex-1 md:flex-none" 
+                      title="保存 (Ctrl+S)"
+                      disabled={isLoading}
+                    >
+                      <Save className="w-4 h-4 mr-2" /> 
+                      {isLoading ? "保存中..." : (currentScreenId ? "更新" : "保存")}
+                    </Button>
+                    <Button onClick={createNewScreen} variant="outline" className="flex-1 md:flex-none" title="新建 (Ctrl+N)">
+                      <FileText className="w-4 h-4 mr-2" /> 新建
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 justify-between">
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="allow-circular" className="text-xs text-muted-foreground whitespace-nowrap">允许循环引用</Label>
+                    <Switch
+                      id="allow-circular"
+                      checked={allowCircular}
+                      onCheckedChange={(v) => setAllowCircular(!!v)}
+                    />
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {isOffline ? "离线编辑（恢复联网后保存）" : "实时保存启用"}
+                  </div>
+                </div>
+              </div>
 
           {/* 保存状态条 */}
           <div className="mt-2 p-2 bg-muted/50 rounded text-xs flex items-center justify-between">
@@ -2034,71 +2042,75 @@ const TelegramChatWithDB = () => {
             </div>
           </div>
           
-          {screens.length > 0 && (
-            <div className="mt-2 flex flex-col sm:flex-row gap-2 sm:items-center">
-              <Select value={currentScreenId} onValueChange={loadScreen}>
-                <SelectTrigger className="sm:w-64">
-                  <SelectValue placeholder="加载模版" />
-                </SelectTrigger>
-                <SelectContent>
-                  {screens.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {isPinned(s.id) ? '★ ' : ''}{s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="flex gap-2">
-                <Button
-                  variant={isPinned(currentScreenId) ? "default" : "outline"}
-                  onClick={() => {
-                    if (!currentScreenId) return;
-                    setPinnedIds(prev => {
-                      const next = prev.includes(currentScreenId)
-                        ? prev.filter(id => id !== currentScreenId)
-                        : [...prev, currentScreenId];
-                      persistPinned(next);
-                      savePinnedCloud(next);
-                      // 仅本地重排，使用最新置顶结果
-                      setScreens(curr => reorderByPinned(curr, next));
-                      return next;
-                    });
-                  }}
-                  disabled={!currentScreenId}
-                  className="flex-1 sm:flex-none"
-                  title={isPinned(currentScreenId) ? "取消置顶" : "置顶"}
-                >
-                  {isPinned(currentScreenId) ? <Star className="w-4 h-4 mr-2" /> : <StarOff className="w-4 h-4 mr-2" />}
-                  {isPinned(currentScreenId) ? '已置顶' : '置顶'}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => currentScreenId && deleteScreen(currentScreenId)}
-                  disabled={!currentScreenId}
-                  className="flex-1 sm:flex-none"
-                >
-                  <Trash2 className="w-4 h-4 mr-2" /> 删除
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={shareScreen}
-                  disabled={!currentScreenId}
-                  className="flex-1 sm:flex-none"
-                >
-                  <Share2 className="w-4 h-4 mr-2" /> 分享
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={deleteAllScreens}
-                  disabled={screens.length === 0 || isClearingScreens}
-                  className="flex-1 sm:flex-none"
-                >
-                  <Trash className="w-4 h-4 mr-2" />
-                  {isClearingScreens ? "清空中..." : "清空全部"}
-                </Button>
-              </div>
-            </div>
-          )}
+              {screens.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                    <div className="sm:w-64">
+                      <Select value={currentScreenId} onValueChange={loadScreen}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="加载模版" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {screens.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {isPinned(s.id) ? '★ ' : ''}{s.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex flex-wrap gap-2 flex-1">
+                      <Button
+                        variant={isPinned(currentScreenId) ? "default" : "outline"}
+                        onClick={() => {
+                          if (!currentScreenId) return;
+                          setPinnedIds(prev => {
+                            const next = prev.includes(currentScreenId)
+                              ? prev.filter(id => id !== currentScreenId)
+                              : [...prev, currentScreenId];
+                            persistPinned(next);
+                            savePinnedCloud(next);
+                            // 仅本地重排，使用最新置顶结果
+                            setScreens(curr => reorderByPinned(curr, next));
+                            return next;
+                          });
+                        }}
+                        disabled={!currentScreenId}
+                        className="flex-1 sm:flex-none"
+                        title={isPinned(currentScreenId) ? "取消置顶" : "置顶"}
+                      >
+                        {isPinned(currentScreenId) ? <Star className="w-4 h-4 mr-2" /> : <StarOff className="w-4 h-4 mr-2" />}
+                        {isPinned(currentScreenId) ? '已置顶' : '置顶'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => currentScreenId && deleteScreen(currentScreenId)}
+                        disabled={!currentScreenId}
+                        className="flex-1 sm:flex-none"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" /> 删除
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={shareScreen}
+                        disabled={!currentScreenId}
+                        className="flex-1 sm:flex-none"
+                      >
+                        <Share2 className="w-4 h-4 mr-2" /> 分享
+                      </Button>
+                    </div>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    onClick={deleteAllScreens}
+                    disabled={screens.length === 0 || isClearingScreens}
+                    className="w-full"
+                  >
+                    <Trash className="w-4 h-4 mr-2" />
+                    {isClearingScreens ? "清空全部中..." : "清空全部模版"}
+                  </Button>
+                </div>
+              )}
 
           {/* Mode Toggle */}
           <div className="mt-2 flex gap-2">

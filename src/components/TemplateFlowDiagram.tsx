@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
-import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown, Maximize2, Minimize2 } from 'lucide-react';
+import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown, Maximize2, Minimize2, Network } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { findAllCircularReferences, generateRelationshipGraph } from '@/lib/referenceChecker';
 import { supabase } from '@/integrations/supabase/client';
@@ -830,113 +830,115 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={
-        fullscreen
-          ? "w-[100vw] h-[100vh] max-w-none max-h-none p-0 gap-0 flex flex-col rounded-none"
-          : "w-[96vw] h-[88vh] max-w-[96vw] max-h-[96vh] p-0 gap-0 flex flex-col"
-      }>
+      <DialogContent
+        className={
+          fullscreen
+            ? "w-[100vw] h-[100vh] max-w-none max-h-none p-0 gap-0 flex flex-col rounded-none"
+            : "w-[96vw] h-[88vh] max-w-[96vw] max-h-[96vh] p-0 gap-0 flex flex-col"
+        }
+      >
         <DialogHeader className="px-6 py-4 border-b">
-          <DialogTitle className="flex items-center justify-between w-full">
-            <span>模版关系图</span>
-            <div className="flex items-center gap-4 text-sm font-normal text-muted-foreground">
-              <span className="flex items-center gap-2">
-                <Home className="w-4 h-4 text-green-600" />
-                入口: {stats.entryPoints}
-              </span>
-              <span>终点: {stats.endpoints}</span>
-              <span className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-destructive" />
-                孤立: {stats.orphans}
-              </span>
-              <span>总链接: {stats.totalLinks}</span>
-              {/* 控件区 */}
-              <div className="flex items-center gap-3 ml-4">
-                <Button variant="outline" size="sm" onClick={() => setOrientation(o => o === 'horizontal' ? 'vertical' : 'horizontal')} title="切换布局方向">
-                  {orientation === 'horizontal' ? <ArrowLeftRight className="w-4 h-4 mr-1" /> : <ArrowUpDown className="w-4 h-4 mr-1" />}
-                  {orientation === 'horizontal' ? '水平' : '垂直'}
-                </Button>
-                <div className="flex items-center gap-2" title="显示边上的按钮名称">
-                  <ListChecks className="w-4 h-4" />
-                  <Switch checked={showButtonLabels} onCheckedChange={v => setShowButtonLabels(!!v)} />
-                </div>
-                <div className="flex items-center gap-2" title="只显示与当前模版相关的节点（上下游2层）">
-                  <span className="text-muted-foreground">仅关联</span>
-                  <Switch checked={focusCurrent} onCheckedChange={v => setFocusCurrent(!!v)} />
-                </div>
-                <div className="flex items-center gap-2" title="心智图模式（从中心向两侧发散）">
-                  <span className="text-muted-foreground">心智图</span>
-                  <Switch checked={mindMapMode} onCheckedChange={v => { setMindMapMode(!!v); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} />
-                </div>
-                <div className="flex items-center gap-2" title="隐藏孤立节点（未被引用且无输出）">
-                  <span className="text-muted-foreground">隐藏孤立</span>
-                  <Switch checked={hideIsolated} onCheckedChange={v => setHideIsolated(!!v)} />
-                </div>
-                <div className="flex items-center gap-2" title="边样式：直线/曲线">
-                  <span className="text-muted-foreground">直线边</span>
-                  <Switch checked={edgeStraight} onCheckedChange={v => setEdgeStraight(!!v)} />
-                </div>
-                <Button variant="outline" size="sm" onClick={() => { setUseSavedPositions(false); setNodes(initialNodes); setEdges(initialEdges); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} title="重新布局（自动排布）">
-                  <RotateCw className="w-4 h-4 mr-1" /> 重新布局
-                </Button>
-                <div className="flex flex-col gap-1">
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => void saveLayout()} title="保存当前布局位置">
-                      保存布局
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => void clearLayout()} title="清除保存并重置到自动布局">
-                      重置位置
-                    </Button>
-                  </div>
-                  <span className="text-[11px] text-muted-foreground text-right">
-                    {layoutSaving
-                      ? '正在保存布局…'
-                      : layoutSavedAt
-                        ? `布局已保存 ${new Date(layoutSavedAt).toLocaleTimeString()}`
-                        : '尚未保存布局'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Input
-                    placeholder="搜索节点..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        const q = searchQuery.trim().toLowerCase();
-                        if (!q) return;
-                        const target = screens.find(s => (s.name || '').toLowerCase().includes(q));
-                        if (!target) return;
-                        const node = nodes.find(n => n.id === target.id);
-                        if (node && rfInstance) {
-                          const cx = (node.position?.x || 0) + 110;
-                          const cy = (node.position?.y || 0) + 55;
-                          rfInstance.setCenter(cx, cy, { zoom: 1, duration: 400 });
-                        }
-                      }
-                    }}
-                    className="h-8 w-40"
-                  />
-                </div>
-                <div className="flex items-center gap-2 w-40" title="节点尺寸/间距">
-                  <span className="text-muted-foreground text-xs">尺寸</span>
-                  <Slider min={0.8} max={1.6} step={0.1} value={[nodeScale]} onValueChange={(v) => setNodeScale(v[0] ?? 1)} />
-                </div>
-                <Button variant="outline" size="sm" onClick={() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 })} title="重置视图">
-                  重置视图
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={runSmartArrange}
-                  title="智能整理（自动选择并细化布局顺序）"
-                >
-                  智能整理
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => { setFullscreen(f => !f); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} title={fullscreen ? "退出全屏" : "全屏显示"}>
-                  {fullscreen ? <Minimize2 className="w-4 h-4 mr-1" /> : <Maximize2 className="w-4 h-4 mr-1" />}
-                  {fullscreen ? '退出全屏' : '全屏'}
-                </Button>
+          <DialogTitle className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <span className="text-base font-semibold">模版关系图</span>
+              <div className="flex flex-wrap items-center gap-4 text-sm font-normal text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Home className="w-4 h-4 text-green-600" />
+                  入口: {stats.entryPoints}
+                </span>
+                <span>终点: {stats.endpoints}</span>
+                <span className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-destructive" />
+                  孤立: {stats.orphans}
+                </span>
+                <span>总链接: {stats.totalLinks}</span>
               </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-sm font-normal text-muted-foreground">
+              <Button variant="outline" size="sm" onClick={() => setOrientation(o => o === 'horizontal' ? 'vertical' : 'horizontal')} title="切换布局方向">
+                {orientation === 'horizontal' ? <ArrowLeftRight className="w-4 h-4 mr-1" /> : <ArrowUpDown className="w-4 h-4 mr-1" />}
+                {orientation === 'horizontal' ? '水平' : '垂直'}
+              </Button>
+              <Button
+                size="sm"
+                onClick={runSmartArrange}
+                title="智能整理（自动选择并细化布局顺序）"
+              >
+                <Network className="w-4 h-4 mr-1" /> 智能整理
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { setUseSavedPositions(false); setNodes(initialNodes); setEdges(initialEdges); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} title="重新布局（自动排布）">
+                <RotateCw className="w-4 h-4 mr-1" /> 重新布局
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 })} title="重置视图">
+                重置视图
+              </Button>
+              <div className="flex items-center gap-2" title="显示边上的按钮名称">
+                <ListChecks className="w-4 h-4" />
+                <Switch checked={showButtonLabels} onCheckedChange={v => setShowButtonLabels(!!v)} />
+              </div>
+              <div className="flex items-center gap-2" title="只显示与当前模版相关的节点（上下游2层）">
+                <span className="text-muted-foreground">仅关联</span>
+                <Switch checked={focusCurrent} onCheckedChange={v => setFocusCurrent(!!v)} />
+              </div>
+              <div className="flex items-center gap-2" title="心智图模式（从中心向两侧发散）">
+                <span className="text-muted-foreground">心智图</span>
+                <Switch checked={mindMapMode} onCheckedChange={v => { setMindMapMode(!!v); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} />
+              </div>
+              <div className="flex items-center gap-2" title="隐藏孤立节点（未被引用且无输出）">
+                <span className="text-muted-foreground">隐藏孤立</span>
+                <Switch checked={hideIsolated} onCheckedChange={v => setHideIsolated(!!v)} />
+              </div>
+              <div className="flex items-center gap-2" title="边样式：直线/曲线">
+                <span className="text-muted-foreground">直线边</span>
+                <Switch checked={edgeStraight} onCheckedChange={v => setEdgeStraight(!!v)} />
+              </div>
+              <div className="flex flex-col gap-1">
+                <div className="flex gap-2 flex-wrap">
+                  <Button variant="outline" size="sm" onClick={() => void saveLayout()} title="保存当前布局位置">
+                    保存布局
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => void clearLayout()} title="清除保存并重置到自动布局">
+                    重置位置
+                  </Button>
+                </div>
+                <span className="text-[11px] text-muted-foreground">
+                  {layoutSaving
+                    ? '正在保存布局…'
+                    : layoutSavedAt
+                      ? `布局已保存 ${new Date(layoutSavedAt).toLocaleTimeString()}`
+                      : '尚未保存布局'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="搜索节点..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const q = searchQuery.trim().toLowerCase();
+                      if (!q) return;
+                      const target = screens.find(s => (s.name || '').toLowerCase().includes(q));
+                      if (!target) return;
+                      const node = nodes.find(n => n.id === target.id);
+                      if (node && rfInstance) {
+                        const cx = (node.position?.x || 0) + 110;
+                        const cy = (node.position?.y || 0) + 55;
+                        rfInstance.setCenter(cx, cy, { zoom: 1, duration: 400 });
+                      }
+                    }
+                  }}
+                  className="h-8 w-44"
+                />
+              </div>
+              <div className="flex items-center gap-2 w-48" title="节点尺寸/间距">
+                <span className="text-muted-foreground text-xs whitespace-nowrap">节点大小</span>
+                <Slider min={0.8} max={1.6} step={0.1} value={[nodeScale]} onValueChange={(v) => setNodeScale(v[0] ?? 1)} />
+              </div>
+              <Button variant="outline" size="sm" onClick={() => { setFullscreen(f => !f); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} title={fullscreen ? "退出全屏" : "全屏显示"}>
+                {fullscreen ? <Minimize2 className="w-4 h-4 mr-1" /> : <Maximize2 className="w-4 h-4 mr-1" />}
+                {fullscreen ? '退出全屏' : '全屏'}
+              </Button>
             </div>
           </DialogTitle>
         </DialogHeader>
