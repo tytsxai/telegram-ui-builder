@@ -740,12 +740,18 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
 
     const nodeCount = screens.length;
     const levelCount = levels.length;
-    const shouldMindMap = nodeCount >= 15 || levelCount >= 5;
+    const useRadial = nodeCount >= 20 || levelCount >= 6;
+    const shouldMindMap = useRadial || nodeCount >= 15 || levelCount >= 5;
     setMindMapMode(shouldMindMap);
     setOrientation(shouldMindMap ? 'horizontal' : (levelCount >= 5 ? 'vertical' : orientation));
+    if (nodeCount > 25) {
+      setShowButtonLabels(false);
+      setEdgeStraight(true);
+    }
 
     const neighbor = new Map<string, Set<string>>();
     const revNeighbor = new Map<string, Set<string>>();
+    const undirected = new Map<string, Set<string>>();
     screens.forEach(s => {
       const out = new Set<string>();
       s.keyboard.forEach(r => r.buttons.forEach(b => b.linked_screen_id && out.add(b.linked_screen_id)));
@@ -754,6 +760,14 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
         const set = revNeighbor.get(t) || new Set<string>();
         set.add(s.id);
         revNeighbor.set(t, set);
+      });
+      const und = undirected.get(s.id) || new Set<string>();
+      out.forEach(t => und.add(t));
+      undirected.set(s.id, und);
+      out.forEach(t => {
+        const revSet = undirected.get(t) || new Set<string>();
+        revSet.add(s.id);
+        undirected.set(t, revSet);
       });
     });
 
@@ -768,7 +782,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     });
 
     const passes = 3;
-    for (let p = 0; p < passes; p++) {
+    for (let p = 0; p < passes && !useRadial; p++) {
       for (let i = 1; i < levels.length; i++) {
         const prev = order.get(levels[i - 1]) || [];
         const cur = order.get(levels[i]) || [];
@@ -798,7 +812,51 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     }
 
     const positions = new Map<string, { x: number; y: number }>();
-    if (shouldMindMap) {
+    if (useRadial) {
+      const rootCandidate =
+        currentScreenId ||
+        screens.find(s => !revNeighbor.has(s.id) && neighbor.get(s.id)?.size)?.id ||
+        screens[0]?.id;
+      const levelMap = new Map<string, number>();
+      const queue: string[] = [];
+      if (rootCandidate) {
+        levelMap.set(rootCandidate, 0);
+        queue.push(rootCandidate);
+      }
+      while (queue.length) {
+        const node = queue.shift()!;
+        const lv = levelMap.get(node) ?? 0;
+        const children = Array.from(undirected.get(node) || []);
+        children.forEach(child => {
+          if (!levelMap.has(child)) {
+            levelMap.set(child, lv + 1);
+            queue.push(child);
+          }
+        });
+      }
+      screens.forEach(s => {
+        if (!levelMap.has(s.id)) {
+          levelMap.set(s.id, (levelMap.size + 1));
+        }
+      });
+      const groups = new Map<number, string[]>();
+      levelMap.forEach((lv, id) => {
+        const arr = groups.get(lv) || [];
+        arr.push(id);
+        groups.set(lv, arr);
+      });
+      const radialBase = 140 * nodeScale;
+      groups.forEach((ids, lv) => {
+        const radius = lv * radialBase;
+        const count = ids.length;
+        ids.forEach((id, idx) => {
+          const angle = count === 1 ? -Math.PI / 2 : (2 * Math.PI * idx) / count - Math.PI / 2;
+          const x = radius * Math.cos(angle);
+          const y = radius * Math.sin(angle);
+          positions.set(id, { x, y });
+        });
+      });
+    } else if (shouldMindMap) {
       const rootId = currentScreenId || order.get(levels[0])?.[0] || screens[0]?.id;
       const sideMap = new Map<string, 'left' | 'right'>();
       const levelMap = new Map<string, number>();
