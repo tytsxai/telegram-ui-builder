@@ -652,11 +652,11 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     lastSavedSignatureRef.current = '';
     setLayoutSavedAt(null);
     setUseSavedPositions(false);
-      if (userId) {
-        try {
-          await supabase.from("screen_layouts").delete().eq("user_id", userId);
-        } catch (e) { /* ignore cloud errors */ }
-      }
+    if (userId) {
+      try {
+        await supabase.from("screen_layouts").delete().eq("user_id", userId);
+      } catch (e) { /* ignore cloud errors */ }
+    }
     setNodes(initialNodes);
     setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50);
   }, [POS_KEY, initialNodes, rfInstance, setNodes, userId]);
@@ -710,239 +710,85 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   const runSmartArrange = useCallback(() => {
     if (screens.length === 0) return;
 
-    // 根据规模自动切换方向/心智图
-    const { nodes: gNodes } = generateRelationshipGraph(screens);
-    const levelGroups = new Map<number, string[]>();
-    gNodes.forEach(n => {
-      const arr = levelGroups.get(n.level) || [];
-      arr.push(n.id);
-      levelGroups.set(n.level, arr);
-    });
-    const levels = Array.from(levelGroups.keys()).sort((a, b) => a - b);
-    if (levels.length === 0) return;
+    if (screens.length === 0) return;
 
-    const nodeCount = screens.length;
-    const levelCount = levels.length;
-    const useRadial = nodeCount >= 24 || levelCount >= 6;
-    const shouldMindMap = !useRadial && (nodeCount >= 14 || levelCount >= 5);
-    setMindMapMode(shouldMindMap);
-    setOrientation(shouldMindMap ? 'horizontal' : (levelCount >= 5 ? 'vertical' : orientation));
-    if (nodeCount > 20) {
+    // Always use Dagre layout for consistent hierarchical structure
+    // Remove custom radial/mindmap logic as requested to fix large graph layout issues
+
+    // Auto-switch to vertical if levels are deep, otherwise keep current or default
+    const { nodes: gNodes } = generateRelationshipGraph(screens);
+    const levelSet = new Set<number>();
+    gNodes.forEach(n => levelSet.add(n.level));
+    if (levelSet.size >= 5) {
+      setOrientation('vertical');
+    }
+
+    // Disable button labels for very large graphs to reduce clutter
+    if (screens.length > 20) {
       setShowButtonLabels(false);
       setEdgeStraight(true);
     }
 
-    const neighbor = new Map<string, Set<string>>();
-    const revNeighbor = new Map<string, Set<string>>();
-    const undirected = new Map<string, Set<string>>();
-    screens.forEach(s => {
-      const out = new Set<string>();
-      s.keyboard.forEach(r => r.buttons.forEach(b => b.linked_screen_id && out.add(b.linked_screen_id)));
-      neighbor.set(s.id, out);
-      out.forEach(t => {
-        const set = revNeighbor.get(t) || new Set<string>();
-        set.add(s.id);
-        revNeighbor.set(t, set);
-      });
-      const und = undirected.get(s.id) || new Set<string>();
-      out.forEach(t => und.add(t));
-      undirected.set(s.id, und);
-      out.forEach(t => {
-        const revSet = undirected.get(t) || new Set<string>();
-        revSet.add(s.id);
-        undirected.set(t, revSet);
-      });
-    });
-
-    const order = new Map<number, string[]>();
-    levels.forEach(lv => {
-      const ids = (levelGroups.get(lv) || []).slice().sort((a, b) => {
-        const an = screens.find(s => s.id === a)?.name || '';
-        const bn = screens.find(s => s.id === b)?.name || '';
-        return an.localeCompare(bn, 'zh');
-      });
-      order.set(lv, ids);
-    });
-
-    const passes = 3;
-    for (let p = 0; p < passes && !useRadial; p++) {
-      for (let i = 1; i < levels.length; i++) {
-        const prev = order.get(levels[i - 1]) || [];
-        const cur = order.get(levels[i]) || [];
-        const idx = new Map(prev.map((id, ix) => [id, ix] as const));
-        const scored = cur.map(id => {
-          const ns = Array.from(revNeighbor.get(id) || []);
-          const vals = ns.map(n => idx.get(n)).filter(v => v !== undefined) as number[];
-          const bc = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : Infinity;
-          return { id, bc };
-        });
-        scored.sort((a, b) => (a.bc === b.bc ? cur.indexOf(a.id) - cur.indexOf(b.id) : (a.bc < b.bc ? -1 : 1)));
-        order.set(levels[i], scored.map(s => s.id));
-      }
-      for (let i = levels.length - 2; i >= 0; i--) {
-        const next = order.get(levels[i + 1]) || [];
-        const cur = order.get(levels[i]) || [];
-        const idx = new Map(next.map((id, ix) => [id, ix] as const));
-        const scored = cur.map(id => {
-          const ns = Array.from(neighbor.get(id) || []);
-          const vals = ns.map(n => idx.get(n)).filter(v => v !== undefined) as number[];
-          const bc = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : Infinity;
-          return { id, bc };
-        });
-        scored.sort((a, b) => (a.bc === b.bc ? cur.indexOf(a.id) - cur.indexOf(b.id) : (a.bc < b.bc ? -1 : 1)));
-        order.set(levels[i], scored.map(s => s.id));
-      }
-    }
-
     const positions = new Map<string, { x: number; y: number }>();
-    if (useRadial) {
-      const rootCandidate =
-        currentScreenId ||
-        screens.find(s => !revNeighbor.has(s.id) && neighbor.get(s.id)?.size)?.id ||
-        screens[0]?.id;
-      const levelMap = new Map<string, number>();
-      const queue: string[] = [];
-      if (rootCandidate) {
-        levelMap.set(rootCandidate, 0);
-        queue.push(rootCandidate);
-      }
-      while (queue.length) {
-        const node = queue.shift()!;
-        const lv = levelMap.get(node) ?? 0;
-        const children = Array.from(undirected.get(node) || []);
-        children.forEach(child => {
-          if (!levelMap.has(child)) {
-            levelMap.set(child, lv + 1);
-            queue.push(child);
+
+    const dagreGraph = new dagre.graphlib.Graph();
+    dagreGraph.setGraph({
+      rankdir: orientation === 'horizontal' ? 'LR' : 'TB',
+      ranksep: 150 * nodeScale, // Increased spacing between levels
+      nodesep: 100 * nodeScale, // Increased spacing between siblings
+      marginx: 100,
+      marginy: 100,
+    });
+    dagreGraph.setDefaultEdgeLabel(() => ({}));
+    const approxWidth = 250 * nodeScale;
+    const approxHeight = 130 * nodeScale;
+
+    screens.forEach(screen => {
+      dagreGraph.setNode(screen.id, { width: approxWidth, height: approxHeight });
+    });
+    screens.forEach(screen => {
+      screen.keyboard.forEach(row => {
+        row.buttons.forEach(btn => {
+          if (btn.linked_screen_id && screens.find(s => s.id === btn.linked_screen_id)) {
+            dagreGraph.setEdge(screen.id, btn.linked_screen_id);
           }
         });
-      }
-      screens.forEach(s => {
-        if (!levelMap.has(s.id)) {
-          levelMap.set(s.id, (levelMap.size + 1));
+      });
+    });
+
+    try {
+      dagre.layout(dagreGraph);
+      screens.forEach(screen => {
+        const node = dagreGraph.node(screen.id);
+        if (node) {
+          positions.set(screen.id, {
+            x: node.x - node.width / 2,
+            y: node.y - node.height / 2,
+          });
         }
       });
-      const groups = new Map<number, string[]>();
-      levelMap.forEach((lv, id) => {
-        const arr = groups.get(lv) || [];
-        arr.push(id);
-        groups.set(lv, arr);
+    } catch (error) {
+      console.error('[FlowDiagram] Dagre layout failed', error);
+      // Fallback to simple grid if dagre fails
+      const xGap = Math.round(260 * nodeScale);
+      const yGap = Math.round(160 * nodeScale);
+      const levelGroups = new Map<number, string[]>();
+      gNodes.forEach(n => {
+        const arr = levelGroups.get(n.level) || [];
+        arr.push(n.id);
+        levelGroups.set(n.level, arr);
       });
-      const radialBase = 140 * nodeScale;
-      groups.forEach((ids, lv) => {
-        const radius = lv * radialBase;
-        const count = ids.length;
+      const levels = Array.from(levelGroups.keys()).sort((a, b) => a - b);
+
+      levels.forEach((lv, li) => {
+        const ids = levelGroups.get(lv) || [];
+        const center = (ids.length - 1) / 2;
         ids.forEach((id, idx) => {
-          const angle = count === 1 ? -Math.PI / 2 : (2 * Math.PI * idx) / count - Math.PI / 2;
-          const x = radius * Math.cos(angle);
-          const y = radius * Math.sin(angle);
+          const x = orientation === 'horizontal' ? li * xGap : idx * xGap;
+          const y = orientation === 'horizontal' ? (idx - center) * yGap : li * yGap;
           positions.set(id, { x, y });
         });
       });
-    } else if (shouldMindMap) {
-      const rootId = currentScreenId || order.get(levels[0])?.[0] || screens[0]?.id;
-      const sideMap = new Map<string, 'left' | 'right'>();
-      const levelMap = new Map<string, number>();
-      if (rootId) {
-        levelMap.set(rootId, 0);
-        const queue: string[] = [rootId];
-        let toggle = true;
-        while (queue.length) {
-          const node = queue.shift()!;
-          const lv = levelMap.get(node) ?? 0;
-          const children = order.get(lv + 1)?.filter(id => (revNeighbor.get(id) || new Set()).has(node)) || [];
-          children.forEach(child => {
-            if (!levelMap.has(child)) {
-              levelMap.set(child, lv + 1);
-              if (lv === 0) {
-                sideMap.set(child, toggle ? 'right' : 'left');
-                toggle = !toggle;
-              } else {
-                sideMap.set(child, sideMap.get(node) || 'right');
-              }
-              queue.push(child);
-            }
-          });
-        }
-        const xGap = Math.round(360 * nodeScale);
-        const yGap = Math.round(180 * nodeScale);
-        const leftGroups = new Map<number, string[]>();
-        const rightGroups = new Map<number, string[]>();
-        screens.forEach(s => {
-          const lv = levelMap.get(s.id);
-          if (lv === undefined) return;
-          if (lv === 0) {
-            positions.set(s.id, { x: 0, y: 0 });
-            return;
-          }
-          const side = sideMap.get(s.id) || 'right';
-          const map = side === 'left' ? leftGroups : rightGroups;
-          const arr = map.get(lv) || [];
-          arr.push(s.id);
-          map.set(lv, arr);
-        });
-        Array.from(new Set([...leftGroups.keys(), ...rightGroups.keys()])).sort((a, b) => a - b).forEach(lv => {
-          const left = (leftGroups.get(lv) || []).slice();
-          const right = (rightGroups.get(lv) || []).slice();
-          left.forEach((id, idx) => {
-            positions.set(id, { x: -lv * xGap, y: (idx - (left.length - 1) / 2) * yGap });
-          });
-          right.forEach((id, idx) => {
-            positions.set(id, { x: lv * xGap, y: (idx - (right.length - 1) / 2) * yGap });
-          });
-        });
-      }
-    } else {
-      const dagreGraph = new dagre.graphlib.Graph();
-      dagreGraph.setGraph({
-        rankdir: orientation === 'horizontal' ? 'LR' : 'TB',
-        ranksep: 260 * nodeScale,
-        nodesep: 180 * nodeScale,
-        marginx: 100,
-        marginy: 100,
-      });
-      dagreGraph.setDefaultEdgeLabel(() => ({}));
-      const approxWidth = 250 * nodeScale;
-      const approxHeight = 130 * nodeScale;
-
-      screens.forEach(screen => {
-        dagreGraph.setNode(screen.id, { width: approxWidth, height: approxHeight });
-      });
-      screens.forEach(screen => {
-        screen.keyboard.forEach(row => {
-          row.buttons.forEach(btn => {
-            if (btn.linked_screen_id && screens.find(s => s.id === btn.linked_screen_id)) {
-              dagreGraph.setEdge(screen.id, btn.linked_screen_id);
-            }
-          });
-        });
-      });
-
-      try {
-        dagre.layout(dagreGraph);
-        screens.forEach(screen => {
-          const node = dagreGraph.node(screen.id);
-          if (node) {
-            positions.set(screen.id, {
-              x: node.x - node.width / 2,
-              y: node.y - node.height / 2,
-            });
-          }
-        });
-      } catch (error) {
-        console.error('[FlowDiagram] Dagre layout failed', error);
-        const xGap = Math.round(260 * nodeScale);
-        const yGap = Math.round(160 * nodeScale);
-        levels.forEach((lv, li) => {
-          const ids = order.get(lv) || [];
-          const center = (ids.length - 1) / 2;
-          ids.forEach((id, idx) => {
-            const x = orientation === 'horizontal' ? li * xGap : idx * xGap;
-            const y = orientation === 'horizontal' ? (idx - center) * yGap : li * yGap;
-            positions.set(id, { x, y });
-          });
-        });
-      }
     }
 
     if (positions.size === 0) return;
