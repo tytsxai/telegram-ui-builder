@@ -10,6 +10,7 @@ Target: keep app and Supabase in sync, with strict RLS and typed client coverage
 ## Types & Client
 - [ ] Regenerate `src/integrations/supabase/types.ts` from the live project (now includes `screens`, `user_pins`, `screen_layouts`, relationships to `auth.users`).
 - [ ] Run `npm run build` to catch drift; fail CI on type errors or unknown tables.
+- [ ] Command (requires Supabase CLI + env): `SUPABASE_PROJECT_REF=<ref> npm run supabase:types`
 - [ ] Remove any `fromUnsafe` or untyped `.from(<string>)` usages (none remain).
 
 ## Environment

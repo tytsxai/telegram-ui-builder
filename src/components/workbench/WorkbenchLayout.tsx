@@ -19,6 +19,13 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   bottomPanel,
 }) => {
   const [isBottomCollapsed, setIsBottomCollapsed] = useState(false);
+
+  // 默认在小屏下折叠底部面板，避免遮挡
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const shouldCollapse = window.innerWidth < 768;
+    setIsBottomCollapsed(shouldCollapse);
+  }, []);
   const [bottomPanelSize, setBottomPanelSize] = useState(25);
 
   React.useEffect(() => {

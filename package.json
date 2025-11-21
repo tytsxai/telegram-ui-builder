@@ -8,7 +8,8 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "supabase:types": "supabase gen types typescript --project-ref $SUPABASE_PROJECT_REF --schema public > src/integrations/supabase/types.ts"
   },
   "dependencies": {
     "@dagrejs/dagre": "^1.1.8",
