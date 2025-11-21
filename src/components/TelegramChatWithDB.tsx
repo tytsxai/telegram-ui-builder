@@ -48,8 +48,8 @@ const cloneKeyboard = (rows: KeyboardRow[]): KeyboardRow[] =>
 const createDefaultKeyboard = (): KeyboardRow[] => cloneKeyboard(DEFAULT_KEYBOARD_TEMPLATE);
 
 const ensureKeyboard = (data: any): KeyboardRow[] => {
-  if (Array.isArray(data)) return data;
-  return DEFAULT_KEYBOARD_TEMPLATE;
+  if (Array.isArray(data)) return cloneKeyboard(data as KeyboardRow[]);
+  return createDefaultKeyboard();
 };
 
 const buildKeyboardFromTelegram = (inlineKeyboard: TelegramImportButton[][]): KeyboardRow[] => {

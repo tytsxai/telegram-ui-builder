@@ -1,12 +1,7 @@
 import { useEffect, useState } from "react";
 import { X, Settings } from "lucide-react";
-import type { KeyboardRow, KeyboardButton } from "./TelegramChat";
+import type { KeyboardRow, KeyboardButton, Screen } from "@/types/telegram";
 import ButtonEditDialog from "./ButtonEditDialog";
-
-interface Screen {
-  id: string;
-  name: string;
-}
 
 interface InlineKeyboardProps {
   keyboard: KeyboardRow[];

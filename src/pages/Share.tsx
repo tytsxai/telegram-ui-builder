@@ -5,20 +5,8 @@ import MessageBubble from "@/components/MessageBubble";
 import InlineKeyboard from "@/components/InlineKeyboard";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import type { KeyboardRow } from "@/components/TelegramChat";
+import type { KeyboardRow, Screen } from "@/types/telegram";
 import type { User } from "@supabase/supabase-js";
-
-interface Screen {
-  id: string;
-  name: string;
-  message_content: string;
-  keyboard: KeyboardRow[];
-  user_id?: string | null;
-  is_public?: boolean | null;
-  updated_at?: string | null;
-  created_at?: string | null;
-  share_token?: string | null;
-}
 
 type ScreenRow = Omit<Screen, "keyboard"> & { keyboard: unknown };
 

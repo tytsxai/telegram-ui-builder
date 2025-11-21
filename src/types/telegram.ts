@@ -16,7 +16,9 @@ export interface Screen {
     name: string;
     message_content: string;
     keyboard: KeyboardRow[];
-    share_token?: string;
-    is_public?: boolean;
-    updated_at?: string; // Optional for local use, present in DB
+    share_token?: string | null;
+    is_public?: boolean | null;
+    created_at?: string | null;
+    updated_at?: string | null;
+    user_id?: string | null;
 }

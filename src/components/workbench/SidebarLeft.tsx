@@ -1,10 +1,9 @@
 
 import React from "react";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { LogOut, FileText, Save, Trash2, Star, StarOff, Home, ArrowUpDown, RotateCw, Maximize2, Trash, Upload, Copy, Download, Network, Share2, RefreshCw, EyeOff } from "lucide-react";
+import { LogOut, FileText, Save, Trash2, Star, StarOff, Home, ArrowUpDown, Trash, Upload, Copy, Download, Network, Share2, RefreshCw, EyeOff } from "lucide-react";
 import { Screen } from "@/types/telegram";
 
 interface SidebarLeftProps {

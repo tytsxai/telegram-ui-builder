@@ -5,12 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import type { KeyboardButton } from "./TelegramChat";
-
-interface Screen {
-  id: string;
-  name: string;
-}
+import type { KeyboardButton, Screen } from "@/types/telegram";
 
 interface ButtonEditDialogProps {
   open: boolean;
