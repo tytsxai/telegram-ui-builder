@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 210 20% 18%;
+    --foreground: 0 0% 100%;
+
+    --card: 210 18% 22%;
+    --card-foreground: 0 0% 100%;
+
+    --popover: 210 18% 22%;
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 197 79% 54%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 18% 24%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 210 18% 24%;
+    --muted-foreground: 0 0% 70%;
+
+    --accent: 197 79% 54%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 18% 24%;
+    --input: 210 18% 24%;
+    --ring: 197 79% 54%;
+
+    --radius: 0.75rem;
+
+    --telegram-blue: 200 100% 42%;
+    --telegram-bg: 210 20% 18%;
+    --telegram-sent: 210 18% 25%;
+    --telegram-received: 210 18% 22%;
+    --telegram-text: 0 0% 100%;
+    --telegram-shadow: 0 0% 0% / 0.2;
+    --telegram-button: 210 18% 22%;
+    --telegram-button-text: 0 0% 100%;
+    --telegram-header: 210 18% 20%;
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 212 16% 12%;
+    --foreground: 0 0% 100%;
+
+    --card: 216 18% 16%;
+    --card-foreground: 0 0% 100%;
+
+    --popover: 216 18% 16%;
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 197 79% 54%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 216 18% 20%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 216 18% 20%;
+    --muted-foreground: 0 0% 70%;
+
+    --accent: 197 79% 54%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 216 18% 20%;
+    --input: 216 18% 20%;
+    --ring: 197 79% 54%;
+    
+    --telegram-blue: 200 100% 42%;
+    --telegram-bg: 212 16% 12%;
+    --telegram-sent: 200 100% 42%;
+    --telegram-received: 216 18% 18%;
+    --telegram-text: 0 0% 100%;
+    --telegram-shadow: 0 0% 0% / 0.2;
+    --telegram-button: 216 18% 18%;
+    --telegram-button-text: 200 100% 50%;
+    --telegram-header: 216 18% 16%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}

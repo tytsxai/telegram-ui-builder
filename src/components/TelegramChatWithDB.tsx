@@ -1,0 +1,2094 @@
+import { useState, useEffect, useRef, useCallback, useMemo, type ChangeEvent } from "react";
+import type { User } from "@supabase/supabase-js";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input"; // Used in Rename Dialog
+import { MessageBubbleHandle } from "./MessageBubble";
+import ButtonEditDialog from "./ButtonEditDialog";
+import TemplateFlowDiagram from "./TemplateFlowDiagram";
+import CircularReferenceDialog from "./CircularReferenceDialog";
+import { toast } from "sonner";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea"; // Used in Import Dialog
+import { KeyboardRow, KeyboardButton, Screen } from "@/types/telegram";
+import { useAutoSave } from "@/hooks/useAutoSave";
+import { useUndoRedo } from "@/hooks/useUndoRedo";
+import {
+  findScreenReferences,
+  detectCircularReferences,
+  findAllCircularReferences
+} from "@/lib/referenceChecker";
+import { validateKeyboard, validateMessageContent } from "@/lib/validation";
+import { debounce } from "@/lib/debounce";
+import { WorkbenchLayout } from "./workbench/WorkbenchLayout";
+import { SidebarLeft } from "./workbench/SidebarLeft";
+import { SidebarRight } from "./workbench/SidebarRight";
+import { CenterCanvas } from "./workbench/CenterCanvas";
+import { BottomPanel } from "./workbench/BottomPanel";
+
+const DEFAULT_MESSAGE = "Welcome to the Telegram UI Builder!\n\nEdit this message directly.\n\nFormatting:\n**bold text** for bold\n`code blocks` for code";
+const DEFAULT_KEYBOARD_TEMPLATE: KeyboardRow[] = [
+  {
+    id: "row-1",
+    buttons: [
+      { id: "btn-1", text: "Button 1", callback_data: "btn_1_action" },
+      { id: "btn-2", text: "Button 2", callback_data: "btn_2_action" },
+    ],
+  },
+];
+
+const cloneKeyboard = (rows: KeyboardRow[]): KeyboardRow[] =>
+  rows.map((row) => ({
+    ...row,
+    buttons: row.buttons.map((btn) => ({ ...btn })),
+  }));
+
+const createDefaultKeyboard = (): KeyboardRow[] => cloneKeyboard(DEFAULT_KEYBOARD_TEMPLATE);
+
+const ensureKeyboard = (data: any): KeyboardRow[] => {
+  if (Array.isArray(data)) return data;
+  return DEFAULT_KEYBOARD_TEMPLATE;
+};
+
+const buildKeyboardFromTelegram = (inlineKeyboard: TelegramImportButton[][]): KeyboardRow[] => {
+  const timestamp = Date.now();
+  return inlineKeyboard.map((row, rowIndex) => ({
+    id: `row-${timestamp}-${rowIndex}`,
+    buttons: row.map((btn, btnIndex) => {
+      const button: KeyboardButton = {
+        id: `btn-${timestamp}-${rowIndex}-${btnIndex}`,
+        text: btn.text,
+      };
+
+      if (btn.url) {
+        button.url = btn.url;
+      } else if (btn.callback_data?.startsWith('goto_screen_')) {
+        button.linked_screen_id = btn.callback_data.replace('goto_screen_', '');
+      } else if (btn.callback_data) {
+        button.callback_data = btn.callback_data;
+      }
+
+      return button;
+    }),
+  }));
+};
+
+const isFlowScreenPayload = (value: unknown): value is FlowScreenPayload => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === "string" &&
+    typeof record.name === "string" &&
+    typeof record.message_content === "string" &&
+    Array.isArray(record.keyboard)
+  );
+};
+
+const isFlowExportPayload = (value: unknown): value is FlowExportPayload => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.version !== "string" || !Array.isArray(record.screens)) {
+    return false;
+  }
+  return record.screens.every(isFlowScreenPayload);
+};
+
+const isTelegramImportButton = (value: unknown): value is TelegramImportButton => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.text === "string";
+};
+
+const isTelegramKeyboard = (value: unknown): value is TelegramImportButton[][] =>
+  Array.isArray(value) && value.every((row) => Array.isArray(row) && row.every(isTelegramImportButton));
+
+const isTelegramExportPayload = (value: unknown): value is TelegramExportPayload => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.text !== "string") {
+    return false;
+  }
+  if (!record.reply_markup) {
+    return true;
+  }
+  const replyMarkup = record.reply_markup as Record<string, unknown>;
+  if (!replyMarkup.inline_keyboard) {
+    return true;
+  }
+  return isTelegramKeyboard(replyMarkup.inline_keyboard);
+};
+
+interface EditorState {
+  messageContent: string;
+  keyboard: KeyboardRow[];
+}
+
+type ScreenRow = Omit<Screen, "keyboard"> & { keyboard: unknown };
+
+type FlowScreenPayload = {
+  id: string;
+  name: string;
+  message_content: string;
+  keyboard: KeyboardRow[];
+};
+
+interface FlowExportPayload {
+  version: string;
+  entry_screen_id?: string;
+  screens: FlowScreenPayload[];
+}
+
+interface TelegramExportButton {
+  text: string;
+  url?: string;
+  callback_data?: string;
+}
+
+interface TelegramExportPayload {
+  text: string;
+  parse_mode: "HTML";
+  reply_markup?: {
+    inline_keyboard: TelegramExportButton[][];
+  };
+}
+
+interface TelegramImportButton {
+  text: string;
+  url?: string;
+  callback_data?: string;
+}
+
+const TelegramChatWithDB = () => {
+  const navigate = useNavigate();
+  const messageBubbleRef = useRef<MessageBubbleHandle>(null);
+  const updateEditableJSONRef = useRef<() => void>();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+
+  // 使用撤销/重做管理编辑器状态
+  const {
+    state: editorState,
+    setState: setEditorState,
+    undo,
+    redo,
+    reset: resetHistory,
+    canUndo,
+    canRedo,
+  } = useUndoRedo<EditorState>({
+    messageContent: DEFAULT_MESSAGE,
+    keyboard: createDefaultKeyboard(),
+  });
+
+  const messageContent = editorState.messageContent;
+  const keyboard = editorState.keyboard;
+
+  // 包装 setState 方法以支持函数式更新
+  const setMessageContent = useCallback((value: string | ((prev: string) => string)) => {
+    setEditorState(prev => ({
+      ...prev,
+      messageContent: typeof value === 'function' ? value(prev.messageContent) : value,
+    }));
+  }, [setEditorState]);
+
+  const setKeyboard = useCallback((value: KeyboardRow[] | ((prev: KeyboardRow[]) => KeyboardRow[])) => {
+    setEditorState(prev => ({
+      ...prev,
+      keyboard: typeof value === 'function' ? value(prev.keyboard) : value,
+    }));
+  }, [setEditorState]);
+
+  const [screens, setScreens] = useState<Screen[]>([]);
+  const [currentScreenId, setCurrentScreenId] = useState<string | undefined>(undefined);
+  const [newScreenName, setNewScreenName] = useState("");
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importJSON, setImportJSON] = useState("");
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [editableJSON, setEditableJSON] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  const [isClearingScreens, setIsClearingScreens] = useState(false);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [jsonSyncError, setJsonSyncError] = useState<string | null>(null);
+  const jsonAutoApplyTimeoutRef = useRef<number | null>(null);
+  const convertToTelegramFormat = useCallback((): TelegramExportPayload => {
+    const text = messageContent
+      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')  // Bold
+      .replace(/`(.*?)`/g, '<code>$1</code>')  // Code
+      .replace(/_(.*?)_/g, '<i>$1</i>');       // Italic
+
+    const reply_markup = keyboard.length > 0 ? {
+      inline_keyboard: keyboard.map(row =>
+        row.buttons.map(btn => {
+          const btnData: TelegramExportButton = { text: btn.text };
+          if (btn.url) {
+            btnData.url = btn.url;
+          } else if (btn.linked_screen_id) {
+            btnData.callback_data = `goto_screen_${btn.linked_screen_id}`;
+          } else {
+            btnData.callback_data = btn.callback_data || btn.text.toLowerCase().replace(/\s+/g, '_');
+          }
+          return btnData;
+        })
+      )
+    } : undefined;
+
+    return {
+      text,
+      parse_mode: "HTML",
+      ...(reply_markup && { reply_markup })
+    };
+  }, [messageContent, keyboard]);
+
+  const updateEditableJSON = useCallback(() => {
+    setEditableJSON(JSON.stringify(convertToTelegramFormat(), null, 2));
+  }, [convertToTelegramFormat]);
+
+  useEffect(() => {
+    updateEditableJSONRef.current = updateEditableJSON;
+  }, [updateEditableJSON]);
+
+  useEffect(() => {
+    updateEditableJSON();
+    setJsonSyncError(null);
+  }, [updateEditableJSON]);
+
+  useEffect(() => {
+    return () => {
+      if (jsonAutoApplyTimeoutRef.current) {
+        window.clearTimeout(jsonAutoApplyTimeoutRef.current);
+      }
+    };
+  }, []);
+  const [navigationHistory, setNavigationHistory] = useState<string[]>([]);
+  const [buttonEditDialogOpen, setButtonEditDialogOpen] = useState(false);
+  const [editingButtonData, setEditingButtonData] = useState<{
+    rowId: string;
+    buttonId: string;
+    button: KeyboardButton;
+  } | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [lastSavedContent, setLastSavedContent] = useState({ message: "", keyboard: [] as KeyboardRow[] });
+  const [isLoading, setIsLoading] = useState(false);
+  const [flowDiagramOpen, setFlowDiagramOpen] = useState(false);
+  const [circularDialogOpen, setCircularDialogOpen] = useState(false);
+  const [detectedCircularPaths, setDetectedCircularPaths] = useState<Array<{ path: string[]; screenNames: string[] }>>([]);
+  // 置顶模版（本地持久化，按用户隔离）
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  // 加载错误提示去重
+  const loadErrorShownRef = useRef(false);
+  const [loadIssue, setLoadIssue] = useState<string | null>(null);
+  // 是否允许循环引用（持久化到本地）
+  const [allowCircular, setAllowCircular] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('allow_circular_references');
+      return saved ? JSON.parse(saved) === true : true; // 默认允许
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('allow_circular_references', JSON.stringify(allowCircular));
+    } catch (e) {
+      // 忽略 Safari/隐私模式无法写入等异常
+      void e;
+    }
+  }, [allowCircular]);
+
+  // 保存状态条：最后保存时间、离线状态、错误信息
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState<boolean>(typeof navigator !== 'undefined' ? !navigator.onLine : false);
+  const [entryScreenId, setEntryScreenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // 置顶：读取与持久化
+  const PINNED_KEY = user ? `pinned_screens_${user.id}` : 'pinned_screens_anon';
+  const CACHE_KEY = user ? `cached_screens_${user.id}` : 'cached_screens_anon';
+  const ENTRY_KEY = user ? `entry_screen_${user.id}` : 'entry_screen_anon';
+
+  // 入口模版读取/持久化
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(ENTRY_KEY);
+      setEntryScreenId(saved || null);
+    } catch (e) { void e; }
+  }, [ENTRY_KEY]);
+
+  useEffect(() => {
+    try {
+      if (entryScreenId) {
+        localStorage.setItem(ENTRY_KEY, entryScreenId);
+      } else {
+        localStorage.removeItem(ENTRY_KEY);
+      }
+    } catch (e) { void e; }
+  }, [entryScreenId, ENTRY_KEY]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PINNED_KEY);
+      if (!raw) { setPinnedIds([]); return; }
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.every(x => typeof x === 'string')) {
+        setPinnedIds(parsed as string[]);
+      } else {
+        setPinnedIds([]);
+      }
+    } catch (e) {
+      void e;
+      setPinnedIds([]);
+    }
+  }, [PINNED_KEY]);
+
+  const persistPinned = useCallback((ids: string[]) => {
+    try { localStorage.setItem(PINNED_KEY, JSON.stringify(ids)); } catch (e) { void e; }
+  }, [PINNED_KEY]);
+
+  const reorderByPinned = useCallback((list: Screen[], customPinned?: string[]) => {
+    const activePinned = customPinned ?? pinnedIds;
+    const set = new Set(activePinned);
+    type WithMeta = Screen & { created_at?: string };
+    const getCreatedAt = (s: WithMeta) => typeof s.created_at === 'string' ? Date.parse(s.created_at) : 0;
+    return [...list].sort((a: WithMeta, b: WithMeta) => {
+      const ap = set.has(a.id) ? 1 : 0;
+      const bp = set.has(b.id) ? 1 : 0;
+      if (ap !== bp) return bp - ap; // pinned first
+      const bd = getCreatedAt(b) - getCreatedAt(a);
+      if (bd !== 0) return bd; // newer first
+      return (b.name || '').localeCompare(a.name || '', 'zh');
+    });
+  }, [pinnedIds]);
+
+  // 云端置顶（可用则同步；失败则忽略）
+  const loadPinnedCloud = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from("user_pins" as any)
+        .select("pinned_ids")
+        .eq("user_id", user.id)
+        .single();
+      if (error || !data) return;
+      const arr = (data as { pinned_ids: string[] | null }).pinned_ids;
+      if (Array.isArray(arr)) {
+        setPinnedIds(arr);
+        persistPinned(arr);
+        setScreens(curr => {
+          const set = new Set(arr);
+          type WithMeta = Screen & { created_at?: string };
+          const getCreatedAt = (s: WithMeta) => typeof s.created_at === 'string' ? Date.parse(s.created_at) : 0;
+          return [...curr].sort((a: WithMeta, b: WithMeta) => {
+            const ap = set.has(a.id) ? 1 : 0;
+            const bp = set.has(b.id) ? 1 : 0;
+            if (ap !== bp) return bp - ap;
+            return getCreatedAt(b) - getCreatedAt(a);
+          });
+        });
+      }
+    } catch (e) { /* ignore */ }
+  }, [user, persistPinned]);
+
+  const savePinnedCloud = useCallback(async (ids: string[]) => {
+    if (!user) return;
+    try {
+      const payload: { user_id: string; pinned_ids: string[] } = { user_id: user.id, pinned_ids: ids };
+      // upsert
+      await supabase.from("user_pins" as any).upsert(payload, { onConflict: "user_id" });
+    } catch (e) { /* ignore */ }
+  }, [user]);
+
+  const isPinned = useCallback((id?: string) => !!id && pinnedIds.includes(id), [pinnedIds]);
+
+
+  // Memo 化昂贵的计算
+  const circularReferences = useMemo(() => {
+    if (screens.length === 0) return [];
+    return findAllCircularReferences(screens);
+  }, [screens]);
+
+  const screenMap = useMemo(() => {
+    return new Map(screens.map(s => [s.id, s]));
+  }, [screens]);
+
+  // 优化的引用查找函数
+  const findScreenReferencesOptimized = useCallback((targetScreenId: string) => {
+    const references: Array<{
+      screenId: string;
+      screenName: string;
+      buttonText: string;
+      rowIndex: number;
+      buttonIndex: number;
+    }> = [];
+
+    screens.forEach((screen) => {
+      if (screen.id === targetScreenId) return;
+
+      const keyboard = screen.keyboard ?? [];
+      keyboard.forEach((row, rowIndex) => {
+        row.buttons?.forEach((button, buttonIndex) => {
+          if (button.linked_screen_id === targetScreenId) {
+            references.push({
+              screenId: screen.id,
+              screenName: screen.name,
+              buttonText: button.text,
+              rowIndex,
+              buttonIndex,
+            });
+          }
+        });
+      });
+    });
+
+    return references;
+  }, [screens]);
+
+  // 自动保存功能
+  const { saveToLocalStorage, restoreFromLocalStorage, clearLocalStorage } = useAutoSave({
+    interval: 30000, // 30秒
+    enabled: !isPreviewMode && hasUnsavedChanges,
+    onSave: async () => {
+      if (currentScreenId && hasUnsavedChanges) {
+        console.log('[AutoSave] 触发自动保存');
+        // 静默保存，不显示toast
+      }
+    },
+    data: { messageContent, keyboard, currentScreenId },
+    storageKey: 'telegram_ui_autosave',
+  });
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        navigate("/auth");
+      } else {
+        setUser(session.user);
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
+      if (!session) {
+        navigate("/auth");
+      } else {
+        setUser(session.user);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+
+  // 检测未保存更改
+  useEffect(() => {
+    const currentState = JSON.stringify({ message: messageContent, keyboard });
+    const savedState = JSON.stringify(lastSavedContent);
+    setHasUnsavedChanges(currentState !== savedState);
+  }, [messageContent, keyboard, lastSavedContent]);
+
+  // 页面加载时尝试恢复自动保存的数据 - 修复：使用独立标志位跟踪加载状态
+  const [screensLoaded, setScreensLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      setScreens([]);
+      setScreensLoaded(false);
+    }
+  }, [user]);
+
+  const loadScreens = useCallback(async () => {
+    if (!user) return [];
+    setIsLoading(true);
+    try {
+      const request = async () => {
+        const { data, error } = await supabase
+          .from("screens")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        return data ?? [];
+      };
+
+      const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+      let data: unknown[] = [];
+      let lastErr: unknown = null;
+      for (let i = 0; i < 3; i++) {
+        try {
+          data = await request();
+          lastErr = null;
+          break;
+        } catch (e) {
+          lastErr = e;
+          await delay(400 * (i + 1));
+        }
+      }
+      if (lastErr) throw lastErr;
+
+      const typedData: ScreenRow[] = (data ?? []) as ScreenRow[];
+      const loadedScreens = typedData.map((screen) => ({
+        ...screen,
+        keyboard: ensureKeyboard(screen.keyboard),
+      }));
+      const ordered = reorderByPinned(loadedScreens as Screen[]);
+      setScreens(ordered);
+      // 缓存最新成功数据
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(ordered)); } catch (e) { void e; }
+      setLoadIssue(null);
+      return loadedScreens; // 修复：返回最新数据供调用者使用
+    } catch (error) {
+      console.error('[LoadScreens] Error:', error);
+      // 尝试从缓存恢复
+      try {
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (raw) {
+          const cached: unknown = JSON.parse(raw);
+          if (Array.isArray(cached)) {
+            setScreens(reorderByPinned(cached as Screen[]));
+            setLoadIssue('离线或服务异常：已加载本地缓存的数据');
+            loadErrorShownRef.current = true;
+            return cached as Screen[];
+          }
+        }
+      } catch (e) { void e; }
+      const reason = error instanceof Error ? error.message : String(error ?? '未知错误');
+      setLoadIssue(`加载模版失败：${reason}`);
+      loadErrorShownRef.current = true;
+      return []; // 错误时返回空数组
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user, reorderByPinned, CACHE_KEY]);
+
+  useEffect(() => {
+    if (user && !screensLoaded) {
+      loadScreens().finally(() => setScreensLoaded(true));
+    }
+  }, [user, screensLoaded, loadScreens]);
+
+  // 登录后尝试同步云端置顶
+  useEffect(() => {
+    loadPinnedCloud();
+  }, [loadPinnedCloud]);
+
+  // 校验入口模版，若不存在则回退到置顶或首个模版
+  useEffect(() => {
+    if (screens.length === 0) return;
+    const existed = entryScreenId && screens.some(s => s.id === entryScreenId);
+    if (existed) return;
+    const fallback = screens.find(s => pinnedIds.includes(s.id)) || screens[0];
+    if (fallback) {
+      setEntryScreenId(fallback.id);
+    }
+  }, [screens, entryScreenId, pinnedIds]);
+
+  // 初次加载时自动进入入口模版（无未保存改动时）
+  useEffect(() => {
+    if (screens.length === 0 || currentScreenId || hasUnsavedChanges) return;
+    const targetId =
+      (entryScreenId && screens.some(s => s.id === entryScreenId) ? entryScreenId : null) ||
+      screens[0]?.id;
+    const target = screens.find(s => s.id === targetId);
+    if (!target) return;
+    const cloned = cloneKeyboard(target.keyboard);
+    setEditorState({ messageContent: target.message_content, keyboard: cloned });
+    setCurrentScreenId(target.id);
+    setLastSavedContent({ message: target.message_content, keyboard: cloneKeyboard(target.keyboard) });
+    resetHistory({ messageContent: target.message_content, keyboard: cloned });
+  }, [screens, currentScreenId, entryScreenId, hasUnsavedChanges, setEditorState, resetHistory]);
+
+  useEffect(() => {
+    // 确保用户已登录、screens 已首次加载完成、且没有当前打开的模板
+    if (user && screensLoaded && !currentScreenId && !hasUnsavedChanges) {
+      const restored = restoreFromLocalStorage();
+
+      // 验证恢复数据的有效性
+      if (restored && restored.messageContent && restored.keyboard) {
+        try {
+          validateMessageContent(restored.messageContent);
+          validateKeyboard(restored.keyboard);
+
+          const shouldRestore = confirm(
+            '检测到未保存的草稿（自动保存），是否恢复？\n\n' +
+            '点击"确定"恢复草稿\n点击"取消"使用默认模版'
+          );
+
+          if (shouldRestore) {
+            setEditorState({
+              messageContent: restored.messageContent,
+              keyboard: restored.keyboard,
+            });
+
+            // 如果恢复的 screenId 仍然存在，则设置它
+            if (restored.currentScreenId && screens.find(s => s.id === restored.currentScreenId)) {
+              setCurrentScreenId(restored.currentScreenId);
+            }
+
+            toast.success('✅ 已恢复自动保存的草稿');
+          } else {
+            clearLocalStorage();
+          }
+        } catch (error) {
+          console.error('[AutoSave] 恢复数据验证失败:', error);
+          clearLocalStorage();
+          toast.error('自动保存的数据已损坏，已清除');
+        }
+      }
+    }
+  }, [user, screensLoaded, currentScreenId, hasUnsavedChanges, screens, restoreFromLocalStorage, clearLocalStorage, setEditorState]);
+
+
+
+  // 模式切换处理 - 修复：添加 updateEditableJSON 依赖
+  const handleModeToggle = useCallback(() => {
+    if (hasUnsavedChanges) {
+      const confirmed = confirm(
+        isPreviewMode
+          ? "⚠️ 切换到编辑模式后，请记得保存修改。\n\n是否继续？"
+          : "⚠️ 当前有未保存的更改，切换到预览模式前建议先保存。\n\n是否继续？"
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    const newMode = !isPreviewMode;
+    setIsPreviewMode(newMode);
+    if (newMode) {
+      updateEditableJSONRef.current?.();
+      setNavigationHistory([]); // 重置导航历史
+      toast.success("✅ 已切换到预览模式，可以点击按钮测试跳转");
+    } else {
+      toast.info("✏️ 已切换到编辑模式，双击按钮可编辑文本");
+    }
+  }, [hasUnsavedChanges, isPreviewMode]);
+
+  const saveScreen = async () => {
+    if (!user) return;
+
+    setIsLoading(true);
+
+    // 验证数据
+    try {
+      validateMessageContent(messageContent);
+      validateKeyboard(keyboard);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      toast.error(`数据验证失败：${message}`);
+      setIsLoading(false);
+      return;
+    }
+
+    // 检查按钮配置
+    const unconfiguredButtons = keyboard.flatMap(row =>
+      row.buttons.filter(btn => !btn.url && !btn.linked_screen_id && !btn.callback_data)
+    );
+
+    if (unconfiguredButtons.length > 0) {
+      const proceed = confirm(
+        `⚠️ 发现 ${unconfiguredButtons.length} 个按钮未配置操作（跳转或回调）。\n\n` +
+        `未配置的按钮：${unconfiguredButtons.map(b => b.text).join('、')}\n\n` +
+        `建议：\n` +
+        `1. 点击按钮右上角⚙️配置跳转目标\n` +
+        `2. 或在"链接模版"标签选择跳转页面\n\n` +
+        `仍要保存吗？`
+      );
+
+      if (!proceed) {
+        toast.info("请先配置按钮操作");
+        return;
+      }
+    }
+
+    const name = newScreenName.trim() || `模版 ${screens.length + 1}`;
+
+    try {
+      const { data, error } = await supabase
+        .from("screens")
+        .insert([{
+          user_id: user.id,
+          name,
+          message_content: messageContent,
+          keyboard: keyboard as any,
+          is_public: false,
+        }]).select().single();
+
+      if (error) throw error;
+      const savedScreenData = data as ScreenRow | null;
+      const savedScreen = savedScreenData
+        ? { ...savedScreenData, keyboard: ensureKeyboard(savedScreenData.keyboard) }
+        : null;
+
+      toast.success("✅ 模版保存成功！");
+      setLastSavedAt(Date.now());
+      setLastError(null);
+      setNewScreenName("");
+      setLastSavedContent({ message: messageContent, keyboard });
+      setHasUnsavedChanges(false);
+      resetHistory({ messageContent, keyboard }); // 重置撤销历史
+      clearLocalStorage(); // 清除自动保存
+
+      if (savedScreen) setCurrentScreenId(savedScreen.id);
+
+      // 重新加载所有模板
+      const updatedScreens = await loadScreens();
+
+      // 保存后检查循环引用（使用更新后的 screens）
+      // 修复：loadScreens 应该返回最新的 screens
+      if (updatedScreens && updatedScreens.length > 0) {
+        const circles = findAllCircularReferences(updatedScreens);
+        if (circles.length > 0) {
+          toast.warning(
+            `⚠️ 检测到循环引用！\n路径: ${circles[0].screenNames.join(' → ')}\n建议检查模版间的跳转关系`,
+            { duration: 6000 }
+          );
+        }
+      }
+
+      // 如果有未配置的按钮，提示用户
+      if (unconfiguredButtons.length > 0) {
+        setTimeout(() => {
+          toast.warning(`提示：请为 ${unconfiguredButtons.length} 个按钮配置跳转目标，使交互流程更完整`);
+        }, 1500);
+      }
+    } catch (error) {
+      console.error('[SaveScreen] Error:', error);
+      const message = error instanceof Error ? error.message : '未知错误';
+      setLastError(message);
+      toast.error("保存模版失败");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const updateScreen = async () => {
+    if (!currentScreenId || !user) return;
+
+    setIsLoading(true);
+
+    // 验证数据
+    try {
+      validateMessageContent(messageContent);
+      validateKeyboard(keyboard);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      toast.error(`数据验证失败：${message}`);
+      setIsLoading(false);
+      return;
+    }
+
+    // 检查按钮配置
+    const unconfiguredButtons = keyboard.flatMap(row =>
+      row.buttons.filter(btn => !btn.url && !btn.linked_screen_id && !btn.callback_data)
+    );
+
+    if (unconfiguredButtons.length > 0) {
+      toast.warning(
+        `⚠️ 提醒：有 ${unconfiguredButtons.length} 个按钮未配置操作\n` +
+        `建议配置跳转目标使交互更完整`,
+        { duration: 4000 }
+      );
+    }
+
+    // 检查循环引用（按设置决定是否阻止保存）
+    const currentScreen = screens.find(s => s.id === currentScreenId);
+    const allCircles = findAllCircularReferences([
+      ...screens,
+      { id: currentScreenId, name: currentScreen?.name || "", keyboard },
+    ]);
+    if (allCircles.length > 0) {
+      setDetectedCircularPaths(allCircles);
+      if (!allowCircular) {
+        setCircularDialogOpen(true);
+        toast.info("检测到循环引用：已阻止保存。请处理后重试。");
+        setIsLoading(false);
+        return;
+      } else {
+        // 允许循环：仅提示，不阻断
+        toast.warning(
+          `⚠️ 检测到 ${allCircles.length} 个循环引用（已允许）。建议确认交互不会陷入死循环。`,
+          { duration: 5000 }
+        );
+      }
+    }
+
+    try {
+      const { error } = await supabase
+        .from("screens")
+        .update({
+          message_content: messageContent,
+          keyboard,
+        })
+        .eq("id", currentScreenId)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+      toast.success("✅ 模版更新成功！");
+      setLastSavedAt(Date.now());
+      setLastError(null);
+      setLastSavedContent({ message: messageContent, keyboard });
+      setHasUnsavedChanges(false);
+      resetHistory({ messageContent, keyboard }); // 重置撤销历史
+      clearLocalStorage(); // 清除自动保存
+      await loadScreens();
+    } catch (error) {
+      console.error('[UpdateScreen] Error:', error);
+      const message = error instanceof Error ? error.message : '未知错误';
+      setLastError(message);
+      toast.error("更新模版失败");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadScreen = (id: string, addToHistory = false) => {
+    const s = screens.find((x) => x.id === id);
+    if (!s) {
+      toast.error("模版不存在");
+      console.error('Screen not found:', id, 'Available screens:', screens.map(s => ({ id: s.id, name: s.name })));
+      return;
+    }
+
+    // 检查未保存的更改
+    if (hasUnsavedChanges && currentScreenId && !isPreviewMode) {
+      const confirmed = confirm("⚠️ 当前有未保存的更改，切换模版会丢失这些更改。\n\n是否继续？");
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    // 在预览模式下且需要添加历史时，记录当前页面
+    // 重要：只有当前有打开的 screen 且不是重复跳转时才添加到历史
+    if (addToHistory && isPreviewMode && currentScreenId && currentScreenId !== id) {
+      console.log('Adding to navigation history:', {
+        currentScreenId,
+        targetScreenId: id,
+        currentHistoryLength: navigationHistory.length,
+      });
+      setNavigationHistory(prev => {
+        // 限制历史记录最大长度为50，防止内存溢出
+        const MAX_HISTORY = 50;
+        const newHistory = [...prev, currentScreenId];
+        if (newHistory.length > MAX_HISTORY) {
+          console.warn('Navigation history limit reached, removing oldest entry');
+          return newHistory.slice(-MAX_HISTORY);
+        }
+        console.log('New navigation history:', newHistory);
+        return newHistory;
+      });
+    }
+
+    setEditorState({
+      messageContent: s.message_content,
+      keyboard: cloneKeyboard(s.keyboard),
+    });
+    setCurrentScreenId(id);
+    setLastSavedContent({ message: s.message_content, keyboard: cloneKeyboard(s.keyboard) });
+    setHasUnsavedChanges(false);
+    resetHistory({ messageContent: s.message_content, keyboard: cloneKeyboard(s.keyboard) });
+
+    // 更新可编辑 JSON
+    if (isPreviewMode) {
+      setTimeout(() => updateEditableJSON(), 100);
+    }
+
+    console.log('Screen loaded successfully:', {
+      id,
+      name: s.name,
+      navigationHistoryLength: navigationHistory.length,
+      isPreviewMode,
+    });
+  };
+
+  const navigateBack = () => {
+    if (navigationHistory.length === 0) {
+      toast.info("📍 已经是起始页面");
+      return;
+    }
+
+    // 修复：添加递归深度限制，防止无限递归
+    const maxDepth = 10;
+    let depth = 0;
+
+    const findValidScreen = (): Screen | null => {
+      if (depth >= maxDepth || navigationHistory.length === 0) {
+        return null;
+      }
+
+      const prevScreenId = navigationHistory[navigationHistory.length - 1];
+      const s = screens.find((x) => x.id === prevScreenId);
+
+      if (!s) {
+        // 清除无效历史
+        setNavigationHistory(prev => prev.slice(0, -1));
+        depth++;
+        return findValidScreen(); // 递归查找
+      }
+
+      return s;
+    };
+
+    const validScreen = findValidScreen();
+
+    if (!validScreen) {
+      toast.error("❌ 所有历史页面都已被删除");
+      setNavigationHistory([]);
+      return;
+    }
+
+    // 移除历史记录
+    setNavigationHistory(prev => prev.slice(0, -1));
+
+    // 修复：使用 setEditorState 保持状态一致性
+    setEditorState({
+      messageContent: validScreen.message_content,
+      keyboard: cloneKeyboard(validScreen.keyboard),
+    });
+    setCurrentScreenId(validScreen.id);
+
+    // 修复：更新所有相关状态，保持数据一致性
+    setLastSavedContent({
+      message: validScreen.message_content,
+      keyboard: cloneKeyboard(validScreen.keyboard),
+    });
+    setHasUnsavedChanges(false);
+    resetHistory({
+      messageContent: validScreen.message_content,
+      keyboard: cloneKeyboard(validScreen.keyboard),
+    });
+
+    // 更新可编辑 JSON
+    if (isPreviewMode) {
+      setTimeout(() => updateEditableJSONRef.current?.(), 100);
+    }
+
+    toast.success(`⬅️ 返回到: ${validScreen.name}`);
+  };
+
+  const createNewScreen = () => {
+    if (hasUnsavedChanges) {
+      const confirmed = confirm("⚠️ 当前有未保存的更改，新建模版会丢失这些更改。\n\n是否继续？");
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setEditorState({
+      messageContent: DEFAULT_MESSAGE,
+      keyboard: createDefaultKeyboard(),
+    });
+    setCurrentScreenId(undefined);
+    setNewScreenName("");
+    setLastSavedContent({ message: DEFAULT_MESSAGE, keyboard: createDefaultKeyboard() });
+    setHasUnsavedChanges(false);
+    resetHistory({ messageContent: DEFAULT_MESSAGE, keyboard: createDefaultKeyboard() });
+    setNavigationHistory([]);
+    clearLocalStorage();
+  };
+
+  const deleteScreen = async (id: string) => {
+    if (!user) return;
+
+    setIsLoading(true);
+
+    // 引用完整性检查 - 使用优化的版本
+    const references = findScreenReferencesOptimized(id);
+
+    if (references.length > 0) {
+      const referenceList = references
+        .map(ref => `• ${ref.screenName} 的按钮 "${ref.buttonText}"`)
+        .join('\n');
+
+      const proceed = confirm(
+        `⚠️ 引用完整性警告！\n\n` +
+        `当前模版被以下 ${references.length} 个按钮引用：\n\n${referenceList}\n\n` +
+        `删除后，这些按钮的跳转将失效。\n\n` +
+        `选项：\n` +
+        `• 确定 - 删除模版（按钮跳转将断开）\n` +
+        `• 取消 - 先修改引用按钮，再删除模版\n\n` +
+        `确定要删除吗？`
+      );
+
+      if (!proceed) {
+        toast.info("已取消删除，请先修改引用按钮");
+        setIsLoading(false);
+        return;
+      }
+
+      // 用户确认删除，清除所有引用
+      toast.info(`正在清除 ${references.length} 个引用...`);
+    }
+
+    try {
+      const { error } = await supabase
+        .from("screens")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      console.log('Screen deleted successfully:', id);
+      toast.success("模版删除成功！");
+
+      // 如果删除的是当前模版，重置编辑器
+      if (currentScreenId === id) {
+        console.log('Deleted screen was current screen, resetting editor');
+        setCurrentScreenId(undefined);
+        createNewScreen();
+      }
+
+      // 清理导航历史中的已删除模版
+      setNavigationHistory(prev => {
+        const cleaned = prev.filter(screenId => screenId !== id);
+        if (cleaned.length !== prev.length) {
+          console.log('Cleaned deleted screen from navigation history:', {
+            deletedId: id,
+            oldLength: prev.length,
+            newLength: cleaned.length,
+          });
+        }
+        return cleaned;
+      });
+
+      await loadScreens();
+    } catch (error) {
+      console.error('[DeleteScreen] Error:', error);
+      toast.error("删除模版失败");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteAllScreens = async () => {
+    if (!user) {
+      toast.error("请先登录");
+      return;
+    }
+    if (screens.length === 0) {
+      toast.info("当前没有可删除的模版");
+      return;
+    }
+
+    const confirmed = confirm(
+      `⚠️ 即将删除您账户下的 ${screens.length} 个模版，此操作不可恢复。\n\n` +
+      `所有导航记录、置顶与缓存也将被清空。\n\n` +
+      `确定要继续吗？`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsClearingScreens(true);
+
+    try {
+      const { error } = await supabase
+        .from("screens")
+        .delete()
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      const defaultKeyboard = createDefaultKeyboard();
+      setScreens([]);
+      setCurrentScreenId(undefined);
+      setEditorState({
+        messageContent: DEFAULT_MESSAGE,
+        keyboard: defaultKeyboard,
+      });
+      setNewScreenName("");
+      setNavigationHistory([]);
+      setPinnedIds([]);
+      persistPinned([]);
+      savePinnedCloud([]);
+      setHasUnsavedChanges(false);
+      setLastSavedContent({ message: DEFAULT_MESSAGE, keyboard: defaultKeyboard });
+      resetHistory({ messageContent: DEFAULT_MESSAGE, keyboard: defaultKeyboard });
+      clearLocalStorage();
+      toast.success("已删除所有模版");
+    } catch (error) {
+      console.error('[deleteAllScreens] error:', error);
+      toast.error("删除全部模版失败");
+    } finally {
+      setIsClearingScreens(false);
+      await loadScreens();
+    }
+  };
+
+  // 全局快捷键支持 - 使用 useRef 避免闭包陷阱
+  const handlersRef = useRef<{
+    updateScreen: () => Promise<void>;
+    saveScreen: () => Promise<void>;
+    createNewScreen: () => void;
+    handleModeToggle: () => void;
+  }>();
+
+  // 始终保持最新的函数引用
+  useEffect(() => {
+    handlersRef.current = {
+      updateScreen,
+      saveScreen,
+      createNewScreen,
+      handleModeToggle,
+    };
+  });
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        if (canUndo && !isPreviewMode) {
+          undo();
+          toast.info('↶ 已撤销');
+        }
+      }
+
+      if (((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z') ||
+        (e.ctrlKey && e.key === 'y')) {
+        e.preventDefault();
+        if (canRedo && !isPreviewMode) {
+          redo();
+          toast.info('↷ 已重做');
+        }
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (currentScreenId) {
+          handlersRef.current?.updateScreen?.();
+        } else {
+          handlersRef.current?.saveScreen?.();
+        }
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+        e.preventDefault();
+        handlersRef.current?.createNewScreen?.();
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault();
+        handlersRef.current?.handleModeToggle?.();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canUndo, canRedo, undo, redo, currentScreenId, isPreviewMode]);
+
+  const buildShareUrl = useCallback((token: string) => `${window.location.origin}/share/${token}`, []);
+
+  const handleCopyOrShare = async () => {
+    if (!currentScreenId || !user) {
+      toast.error("请先保存模版");
+      return;
+    }
+    const currentScreen = screens.find(s => s.id === currentScreenId);
+    if (!currentScreen) return;
+    setShareLoading(true);
+    try {
+      let token = currentScreen.share_token;
+      if (!token) {
+        token = crypto.randomUUID();
+        const { error } = await supabase
+          .from("screens")
+          .update({
+            is_public: true,
+            share_token: token,
+          })
+          .eq("id", currentScreenId)
+          .eq("user_id", user.id);
+        if (error) throw error;
+      }
+      const shareUrl = buildShareUrl(token);
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success(currentScreen.share_token ? "分享链接已复制到剪贴板！" : "已生成并复制新的分享链接！");
+      await loadScreens();
+    } catch (error) {
+      toast.error("分享链接处理失败");
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const handleRotateShareLink = async () => {
+    if (!currentScreenId || !user) return;
+    setShareLoading(true);
+    try {
+      const token = crypto.randomUUID();
+      const { error } = await supabase
+        .from("screens")
+        .update({
+          is_public: true,
+          share_token: token,
+        })
+        .eq("id", currentScreenId)
+        .eq("user_id", user.id);
+      if (error) throw error;
+      await navigator.clipboard.writeText(buildShareUrl(token));
+      toast.success("已刷新分享链接并复制到剪贴板");
+      await loadScreens();
+    } catch (error) {
+      toast.error("刷新分享链接失败");
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const handleUnshareScreen = async () => {
+    if (!currentScreenId || !user) return;
+    setShareLoading(true);
+    try {
+      const { error } = await supabase
+        .from("screens")
+        .update({
+          is_public: false,
+          share_token: null,
+        })
+        .eq("id", currentScreenId)
+        .eq("user_id", user.id);
+      if (error) throw error;
+      toast.success("已取消公开");
+      await loadScreens();
+    } catch (error) {
+      toast.error("取消公开失败");
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate("/auth");
+  };
+
+  const exportFlowAsJSON = () => {
+    if (screens.length === 0) {
+      toast.error("没有可导出的模版");
+      return;
+    }
+
+    const entryId =
+      (entryScreenId && screens.some(s => s.id === entryScreenId) ? entryScreenId : null) ||
+      currentScreenId ||
+      screens[0]?.id;
+
+    // 导出整个交互流程，包含完整的模版数据
+    const flowData = {
+      version: "1.0",
+      entry_screen_id: entryId,
+      screens: screens.map(screen => ({
+        id: screen.id,
+        name: screen.name,
+        message_content: screen.message_content,
+        keyboard: screen.keyboard,
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(flowData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `telegram-flow-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("交互流程已导出！");
+  };
+
+  const handleExportJSON = () => {
+    const data = convertToTelegramFormat();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `telegram-ui-${currentScreenId || 'design'}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("JSON 文件已下载！");
+  };
+
+  const handleCopyJSON = async () => {
+    const data = convertToTelegramFormat();
+    await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+    toast.success("JSON 已复制到剪贴板！");
+  };
+
+  const applyEditableJSON = useCallback((rawJSON: string, options?: { silent?: boolean }) => {
+    try {
+      const parsed: unknown = JSON.parse(rawJSON);
+      if (!isTelegramExportPayload(parsed)) {
+        throw new Error("Invalid JSON");
+      }
+
+      const markdownText = parsed.text
+        .replace(/<b>(.*?)<\/b>/g, '**$1**')
+        .replace(/<code>(.*?)<\/code>/g, '`$1`')
+        .replace(/<i>(.*?)<\/i>/g, '_$1_');
+
+      setMessageContent(markdownText);
+
+      const inlineKeyboard = parsed.reply_markup?.inline_keyboard;
+      if (inlineKeyboard && isTelegramKeyboard(inlineKeyboard)) {
+        setKeyboard(buildKeyboardFromTelegram(inlineKeyboard));
+      }
+
+      setJsonSyncError(null);
+      if (!options?.silent) {
+        toast.success("JSON 已应用！");
+      }
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setJsonSyncError("JSON 无法解析或结构不正确");
+      if (!options?.silent) {
+        toast.error(message === "Invalid JSON" ? "JSON 格式无效" : "JSON 应用失败");
+      }
+      return false;
+    }
+  }, [setKeyboard, setMessageContent, setJsonSyncError]);
+
+  const handleEditableJSONChange = (value: string) => {
+    setEditableJSON(value);
+    if (jsonAutoApplyTimeoutRef.current) {
+      window.clearTimeout(jsonAutoApplyTimeoutRef.current);
+    }
+    if (!value.trim()) {
+      setJsonSyncError("JSON 不能为空");
+      return;
+    }
+    setJsonSyncError(null);
+    jsonAutoApplyTimeoutRef.current = window.setTimeout(() => {
+      applyEditableJSON(value, { silent: true });
+      jsonAutoApplyTimeoutRef.current = null;
+    }, 800);
+  };
+
+  const processImportedJSON = async (rawJSON: string) => {
+    const jsonToParse = rawJSON.trim();
+    if (!jsonToParse) {
+      toast.error("请先粘贴或选择 JSON 数据");
+      return;
+    }
+
+    setIsImporting(true);
+
+    try {
+      const parsed: unknown = JSON.parse(jsonToParse);
+
+      if (isFlowExportPayload(parsed)) {
+        if (!user) {
+          toast.error("请先登录");
+          return;
+        }
+
+        const buildImportedName = (name: string | undefined, index: number) => {
+          const cleaned = (name ?? `导入模版 ${index + 1}`)
+            .replace(/\s*(?:\(导入\))+$/g, "")
+            .trim();
+          const base = cleaned || `导入模版 ${index + 1}`;
+          return `${base} (导入)`;
+        };
+
+        const importedScreens: Screen[] = [];
+        const insertedIds: string[] = [];
+        const oldIdToNewId: Record<string, string> = {};
+
+        try {
+          const rowsToInsert = parsed.screens.map((screen, index) => ({
+            user_id: user.id,
+            name: buildImportedName(screen.name, index),
+            message_content: screen.message_content,
+            keyboard: ensureKeyboard(screen.keyboard),
+            is_public: false,
+          }));
+
+          if (rowsToInsert.length === 0) {
+            toast.error("导入文件中没有可用的模版");
+            return;
+          }
+
+          const { data, error } = await supabase
+            .from("screens")
+            .insert(rowsToInsert)
+            .select();
+
+          if (error) throw error;
+          const rows = (data ?? []) as ScreenRow[];
+          rows.forEach((row, index) => {
+            const savedScreen: Screen = {
+              ...row,
+              keyboard: ensureKeyboard(row.keyboard),
+            };
+            importedScreens.push(savedScreen);
+            insertedIds.push(savedScreen.id);
+            const originalScreen = parsed.screens[index];
+            if (originalScreen) {
+              oldIdToNewId[originalScreen.id] = savedScreen.id;
+            }
+          });
+
+          const updatePromises = importedScreens
+            .map((screen) => {
+              let needsUpdate = false;
+              const updatedKeyboard = screen.keyboard.map((row) => ({
+                ...row,
+                buttons: row.buttons.map((btn) => {
+                  if (btn.linked_screen_id && oldIdToNewId[btn.linked_screen_id]) {
+                    needsUpdate = true;
+                    return { ...btn, linked_screen_id: oldIdToNewId[btn.linked_screen_id] };
+                  }
+                  return btn;
+                }),
+              }));
+
+              if (needsUpdate) {
+                return supabase
+                  .from("screens")
+                  .update({ keyboard: updatedKeyboard })
+                  .eq("id", screen.id);
+              }
+              return null;
+            })
+            .filter(Boolean) as PromiseLike<unknown>[];
+
+          if (updatePromises.length > 0) {
+            await Promise.all(updatePromises);
+          }
+        } catch (flowError) {
+          if (insertedIds.length > 0) {
+            await supabase.from("screens").delete().in("id", insertedIds);
+          }
+          throw flowError;
+        }
+
+        await loadScreens();
+
+        if (parsed.entry_screen_id && oldIdToNewId[parsed.entry_screen_id]) {
+          loadScreen(oldIdToNewId[parsed.entry_screen_id]);
+        }
+
+        setImportDialogOpen(false);
+        setImportJSON("");
+        toast.success(`成功导入 ${importedScreens.length} 个模版！`);
+        return;
+      }
+
+      if (!isTelegramExportPayload(parsed)) {
+        throw new Error("Invalid JSON structure");
+      }
+
+      const markdownText = parsed.text
+        .replace(/<b>(.*?)<\/b>/g, '**$1**')
+        .replace(/<code>(.*?)<\/code>/g, '`$1`')
+        .replace(/<i>(.*?)<\/i>/g, '_$1_');
+
+      setMessageContent(markdownText);
+
+      const inlineKeyboard = parsed.reply_markup?.inline_keyboard;
+      if (inlineKeyboard && isTelegramKeyboard(inlineKeyboard)) {
+        setKeyboard(buildKeyboardFromTelegram(inlineKeyboard));
+      }
+
+      setImportDialogOpen(false);
+      setImportJSON("");
+      toast.success("JSON 导入成功！");
+    } catch (error) {
+      console.error(error);
+      toast.error("JSON 格式无效或导入失败");
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleImportJSON = async () => {
+    if (isImporting) return;
+    await processImportedJSON(importJSON);
+  };
+
+  const handleImportFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (isImporting) return;
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      setImportJSON(text);
+      await processImportedJSON(text);
+    } catch (error) {
+      console.error(error);
+      toast.error("JSON 文件读取失败");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const handleApplyEditedJSON = () => {
+    if (jsonAutoApplyTimeoutRef.current) {
+      window.clearTimeout(jsonAutoApplyTimeoutRef.current);
+      jsonAutoApplyTimeoutRef.current = null;
+    }
+    applyEditableJSON(editableJSON);
+  };
+
+  const handleRenameScreen = async () => {
+    if (!currentScreenId || !user || !renameValue.trim()) return;
+
+    try {
+      const { error } = await supabase
+        .from("screens")
+        .update({ name: renameValue.trim() })
+        .eq("id", currentScreenId)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+      toast.success("模版重命名成功！");
+      setRenameDialogOpen(false);
+      await loadScreens();
+    } catch (error) {
+      toast.error("重命名失败");
+    }
+  };
+
+  const openRenameDialog = () => {
+    const current = screens.find(s => s.id === currentScreenId);
+    if (current) {
+      setRenameValue(current.name);
+      setRenameDialogOpen(true);
+    }
+  };
+
+  const handleAddButton = () => {
+    const btnId = `btn-${Date.now()}`;
+    const newButton: KeyboardButton = {
+      id: btnId,
+      text: "新按钮",
+      callback_data: `${btnId}_action`,
+    };
+
+    let targetRowId = '';
+
+    // 使用函数式更新确保状态同步
+    setKeyboard((prev) => {
+      const newKeyboard = [...prev];
+      const lastRow = newKeyboard[newKeyboard.length - 1];
+
+      if (lastRow && lastRow.buttons.length < 4) {
+        lastRow.buttons.push(newButton);
+        targetRowId = lastRow.id;
+      } else {
+        const newRowId = `row-${Date.now() + 1}`; // 确保与按钮ID不同
+        targetRowId = newRowId;
+        newKeyboard.push({
+          id: newRowId,
+          buttons: [newButton],
+        });
+      }
+
+      // 延迟打开配置对话框，使用 targetRowId
+      setTimeout(() => {
+        setEditingButtonData({
+          rowId: targetRowId,
+          buttonId: btnId,
+          button: newButton,
+        });
+        setButtonEditDialogOpen(true);
+        toast.info("💡 请配置按钮跳转目标");
+      }, 100);
+
+      return newKeyboard;
+    });
+  };
+
+  const handleAddRow = () => {
+    const timestamp = Date.now();
+    const btnId = `btn-${timestamp}`;
+    const rowId = `row-${timestamp + 1}`; // 确保与按钮ID不同
+    const newButton: KeyboardButton = {
+      id: btnId,
+      text: "新按钮",
+      callback_data: `${btnId}_action`,
+    };
+
+    setKeyboard((prev) => {
+      const newKeyboard = [
+        ...prev,
+        {
+          id: rowId,
+          buttons: [newButton],
+        },
+      ];
+
+      // 延迟打开配置对话框
+      setTimeout(() => {
+        setEditingButtonData({
+          rowId,
+          buttonId: btnId,
+          button: newButton,
+        });
+        setButtonEditDialogOpen(true);
+        toast.info("💡 请配置按钮跳转目标");
+      }, 100);
+
+      return newKeyboard;
+    });
+  };
+
+  const handleButtonTextChange = (rowId: string, buttonId: string, newText: string) => {
+    setKeyboard((prev) =>
+      prev.map((row) =>
+        row.id === rowId
+          ? {
+            ...row,
+            buttons: row.buttons.map((btn) =>
+              btn.id === buttonId ? { ...btn, text: newText } : btn
+            ),
+          }
+          : row
+      )
+    );
+  };
+
+  const handleButtonUpdate = (rowId: string, buttonId: string, updatedButton: KeyboardButton) => {
+    console.log('Button updated:', {
+      id: updatedButton.id,
+      text: updatedButton.text,
+      callback_data: updatedButton.callback_data,
+      url: updatedButton.url,
+      linked_screen_id: updatedButton.linked_screen_id,
+    });
+
+    setKeyboard((prev) =>
+      prev.map((row) =>
+        row.id === rowId
+          ? {
+            ...row,
+            buttons: row.buttons.map((btn) =>
+              btn.id === buttonId ? { ...updatedButton } : btn
+            ),
+          }
+          : row
+      )
+    );
+
+    // 同步更新 editingButtonData 以保持数据一致性
+    if (editingButtonData && editingButtonData.buttonId === buttonId) {
+      setEditingButtonData({
+        ...editingButtonData,
+        button: updatedButton,
+      });
+    }
+
+    // 提示用户保存
+    if (updatedButton.linked_screen_id) {
+      const targetScreen = screens.find(s => s.id === updatedButton.linked_screen_id);
+      toast.success(`✅ 按钮已设置跳转到: ${targetScreen?.name || '未知模版'}`);
+    } else if (updatedButton.url) {
+      toast.success(`✅ 按钮已设置 URL 链接`);
+    } else {
+      toast.success("✅ 按钮配置已更新");
+    }
+  };
+
+  const handleButtonClick = (button: KeyboardButton) => {
+    if (!isPreviewMode) {
+      console.log('Button click ignored: not in preview mode');
+      return;
+    }
+
+    console.log('Button clicked in preview:', {
+      id: button.id,
+      text: button.text,
+      callback_data: button.callback_data,
+      url: button.url,
+      linked_screen_id: button.linked_screen_id,
+      currentScreenId,
+      navigationHistoryLength: navigationHistory.length,
+      screensAvailable: screens.length,
+    });
+
+    // 优先处理 linked_screen_id 跳转
+    if (button.linked_screen_id) {
+      const targetScreen = screens.find(s => s.id === button.linked_screen_id);
+      if (!targetScreen) {
+        toast.error("❌ 目标模版不存在或已被删除");
+        console.error('Target screen not found:', {
+          linkedScreenId: button.linked_screen_id,
+          availableScreens: screens.map(s => ({ id: s.id, name: s.name })),
+          totalScreens: screens.length,
+        });
+        return;
+      }
+
+      // 确保不重复跳转到当前页面
+      if (button.linked_screen_id === currentScreenId) {
+        toast.warning("⚠️ 已在当前模版");
+        console.log('Navigation prevented: already on target screen');
+        return;
+      }
+
+      console.log('Navigating to linked screen:', {
+        from: currentScreenId,
+        fromName: screens.find(s => s.id === currentScreenId)?.name,
+        to: button.linked_screen_id,
+        toName: targetScreen.name,
+        historyLength: navigationHistory.length,
+      });
+
+      try {
+        loadScreen(button.linked_screen_id, true);
+        toast.success(`✅ 已跳转到: ${targetScreen.name}`);
+      } catch (error) {
+        console.error('Navigation error:', error);
+        toast.error('❌ 跳转失败，请重试');
+      }
+      return;
+    }
+
+    // 处理 URL 链接
+    if (button.url) {
+      console.log('Opening URL:', button.url);
+      try {
+        window.open(button.url, '_blank', 'noopener,noreferrer');
+        toast.info('🔗 已打开链接');
+      } catch (error) {
+        toast.error('❌ 链接打开失败');
+        console.error('Failed to open URL:', error);
+      }
+      return;
+    }
+
+    // 处理普通回调数据（包括 goto_screen_ 格式的回调）
+    if (button.callback_data) {
+      // 检查是否是 goto_screen_ 格式的回调
+      if (button.callback_data.startsWith('goto_screen_')) {
+        const targetId = button.callback_data.replace('goto_screen_', '');
+        const targetScreen = screens.find(s => s.id === targetId);
+        if (targetScreen) {
+          if (targetId === currentScreenId) {
+            toast.warning("⚠️ 已在当前模版");
+            console.log('Navigation prevented: already on target screen');
+            return;
+          }
+
+          console.log('Navigating to screen (via callback_data):', {
+            from: currentScreenId,
+            to: targetId,
+            targetName: targetScreen.name,
+          });
+
+          try {
+            loadScreen(targetId, true);
+            toast.success(`✅ 已跳转到: ${targetScreen.name}`);
+          } catch (error) {
+            console.error('Navigation error:', error);
+            toast.error('❌ 跳转失败，请重试');
+          }
+        } else {
+          toast.error("❌ 目标模版不存在");
+          console.error('Target screen not found:', targetId);
+        }
+      } else {
+        toast.info(`📋 回调数据: ${button.callback_data}`);
+        console.log('Callback data triggered:', button.callback_data);
+      }
+      return;
+    }
+
+    // 按钮没有配置任何操作
+    console.warn('Button clicked but no action configured:', button);
+    toast.warning('⚠️ 此按钮未配置操作');
+  };
+
+  const handleDeleteButton = (rowId: string, buttonId: string) => {
+    setKeyboard((prev) => {
+      const newKeyboard = prev.map((row) => {
+        if (row.id === rowId) {
+          return {
+            ...row,
+            buttons: row.buttons.filter((btn) => btn.id !== buttonId),
+          };
+        }
+        return row;
+      });
+
+      return newKeyboard.filter((row) => row.buttons.length > 0);
+    });
+  };
+
+  const handleFormatClick = (format: 'bold' | 'italic' | 'code' | 'link') => {
+    if (format === 'link') {
+      const url = prompt('Enter URL:');
+      if (url) {
+        messageBubbleRef.current?.applyFormat('link', url);
+      }
+    } else {
+      messageBubbleRef.current?.applyFormat(format);
+    }
+    messageBubbleRef.current?.focus();
+  };
+
+  const handleTogglePin = () => {
+    if (!currentScreenId) return;
+    setPinnedIds(prev => {
+      const next = prev.includes(currentScreenId)
+        ? prev.filter(id => id !== currentScreenId)
+        : [...prev, currentScreenId];
+      persistPinned(next);
+      savePinnedCloud(next);
+      setScreens(curr => reorderByPinned(curr, next));
+      return next;
+    });
+  };
+
+  const handleSetEntry = () => {
+    if (currentScreenId) setEntryScreenId(currentScreenId);
+  };
+
+  const handleJumpToEntry = () => {
+    if (entryScreenId) loadScreen(entryScreenId);
+  };
+
+  if (!user) {
+    return null;
+  }
+
+  return (
+    <>
+      <WorkbenchLayout
+        leftPanel={
+          <SidebarLeft
+            user={user}
+            screens={screens}
+            currentScreenId={currentScreenId}
+            entryScreenId={entryScreenId}
+            pinnedIds={pinnedIds}
+            isLoading={isLoading}
+            isClearingScreens={isClearingScreens}
+            shareLoading={shareLoading}
+            hasUnsavedChanges={hasUnsavedChanges}
+            isOffline={isOffline}
+            onLogout={handleLogout}
+            onLoadScreen={loadScreen}
+            onNewScreen={createNewScreen}
+            onSaveScreen={saveScreen}
+            onUpdateScreen={updateScreen}
+            onDeleteScreen={deleteScreen}
+            onDeleteAllScreens={deleteAllScreens}
+            onTogglePin={handleTogglePin}
+            onSetEntry={handleSetEntry}
+            onJumpToEntry={handleJumpToEntry}
+            onCopyOrShare={handleCopyOrShare}
+            onRotateShareLink={handleRotateShareLink}
+            onUnshareScreen={handleUnshareScreen}
+            onOpenImport={() => setImportDialogOpen(true)}
+            onCopyJSON={handleCopyJSON}
+            onExportJSON={handleExportJSON}
+            onExportFlow={exportFlowAsJSON}
+            onOpenFlowDiagram={() => setFlowDiagramOpen(true)}
+          />
+        }
+        rightPanel={
+          <SidebarRight
+            newScreenName={newScreenName}
+            onNewScreenNameChange={setNewScreenName}
+            onFormatClick={handleFormatClick}
+            onAddButton={handleAddButton}
+            onAddRow={handleAddRow}
+            allowCircular={allowCircular}
+            onAllowCircularChange={setAllowCircular}
+            isOffline={isOffline}
+            currentScreenId={currentScreenId}
+            onOpenRenameDialog={openRenameDialog}
+          />
+        }
+        centerCanvas={
+          <CenterCanvas
+            messageContent={messageContent}
+            setMessageContent={setMessageContent}
+            keyboard={keyboard}
+            onButtonTextChange={handleButtonTextChange}
+            onButtonUpdate={handleButtonUpdate}
+            onDeleteButton={handleDeleteButton}
+            onButtonClick={handleButtonClick}
+            isPreviewMode={isPreviewMode}
+            onToggleMode={handleModeToggle}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={undo}
+            onRedo={redo}
+            messageBubbleRef={messageBubbleRef}
+            screens={screens}
+            navigationHistory={navigationHistory}
+            onNavigateBack={navigateBack}
+            currentScreenName={screens.find(s => s.id === currentScreenId)?.name}
+          />
+        }
+        bottomPanel={
+          <BottomPanel
+            editableJSON={editableJSON}
+            onEditableJSONChange={(val) => handleEditableJSONChange(val)}
+            onApplyJSON={handleApplyEditedJSON}
+            jsonSyncError={jsonSyncError}
+            isImporting={isImporting}
+            loadIssue={loadIssue}
+            circularReferences={circularReferences}
+            allowCircular={allowCircular}
+          />
+        }
+      />
+
+      {/* Dialogs */}
+      {editingButtonData && (
+        <ButtonEditDialog
+          open={buttonEditDialogOpen}
+          onOpenChange={setButtonEditDialogOpen}
+          button={editingButtonData.button}
+          onSave={(updatedButton) => {
+            handleButtonUpdate(
+              editingButtonData.rowId,
+              editingButtonData.buttonId,
+              updatedButton
+            );
+            setButtonEditDialogOpen(false);
+            setEditingButtonData(null);
+          }}
+          screens={screens}
+          onOpenScreen={(screenId) => {
+            loadScreen(screenId);
+            toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);
+          }}
+          onCreateAndOpenScreen={() => {
+            createNewScreen();
+            toast.info('🆕 已创建新模版，请先保存以便可被链接');
+          }}
+        />
+      )}
+
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>导入 Telegram JSON</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="import-json">粘贴 JSON 数据</Label>
+              <Textarea
+                id="import-json"
+                value={importJSON}
+                onChange={(e) => setImportJSON(e.target.value)}
+                placeholder='{"text":"Hello","parse_mode":"HTML","reply_markup":{"inline_keyboard":[[{"text":"Button","callback_data":"action"}]]}}'
+                rows={10}
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                disabled={isImporting}
+                onChange={handleImportFileSelect}
+              />
+              <Button
+                variant="secondary"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full sm:w-auto"
+                disabled={isImporting}
+              >
+                {isImporting ? "处理中..." : "选择 JSON 文件"}
+              </Button>
+              <p className="text-xs text-muted-foreground sm:text-right">
+                支持直接选择从本工具导出的 JSON 文件
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={handleImportJSON}
+              disabled={isImporting || !importJSON.trim()}
+            >
+              {isImporting ? "导入中..." : "导入"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>重命名模版</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="rename">新名称</Label>
+              <Input
+                id="rename"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={handleRenameScreen}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <TemplateFlowDiagram
+        screens={screens}
+        currentScreenId={currentScreenId}
+        open={flowDiagramOpen}
+        onOpenChange={setFlowDiagramOpen}
+        userId={user?.id || undefined}
+        onScreenClick={(screenId) => {
+          loadScreen(screenId);
+          toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);
+        }}
+      />
+
+      <CircularReferenceDialog
+        open={circularDialogOpen}
+        onOpenChange={setCircularDialogOpen}
+        circularPaths={detectedCircularPaths}
+        screens={screens}
+        currentScreenId={currentScreenId}
+        onNavigateToScreen={(screenId) => {
+          loadScreen(screenId);
+          toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);
+        }}
+        onOpenFlowDiagram={() => {
+          setCircularDialogOpen(false);
+          setFlowDiagramOpen(true);
+        }}
+      />
+    </>
+  );
+};
+
+export default TelegramChatWithDB;
