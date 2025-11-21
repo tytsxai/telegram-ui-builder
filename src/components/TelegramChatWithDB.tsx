@@ -29,6 +29,7 @@ import { CenterCanvas } from "./workbench/CenterCanvas";
 import { BottomPanel } from "./workbench/BottomPanel";
 import type { Json } from "@/integrations/supabase/types";
 import { withRetry, logSupabaseError } from "@/lib/supabaseRetry";
+import { readPendingOps, savePendingOps, clearPendingOps } from "@/lib/pendingQueue";
 
 const DEFAULT_MESSAGE = "Welcome to the Telegram UI Builder!\n\nEdit this message directly.\n\nFormatting:\n**bold text** for bold\n`code blocks` for code";
 const DEFAULT_KEYBOARD_TEMPLATE: KeyboardRow[] = [
@@ -285,6 +286,7 @@ const TelegramChatWithDB = () => {
   const [flowDiagramOpen, setFlowDiagramOpen] = useState(false);
   const [circularDialogOpen, setCircularDialogOpen] = useState(false);
   const [detectedCircularPaths, setDetectedCircularPaths] = useState<Array<{ path: string[]; screenNames: string[] }>>([]);
+  const [pendingOpsNotice, setPendingOpsNotice] = useState(false);
   // 置顶模版（本地持久化，按用户隔离）
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   // 加载错误提示去重
@@ -499,6 +501,12 @@ const TelegramChatWithDB = () => {
         navigate("/auth");
       } else {
         setUser(session.user);
+        // 检查待补偿操作
+        const pending = readPendingOps(session.user.id);
+        if (pending.length > 0) {
+          setPendingOpsNotice(true);
+          toast.warning(`有 ${pending.length} 个未同步的保存请求。请重新保存一次。`, { duration: 5000 });
+        }
       }
     });
 
@@ -767,6 +775,8 @@ const TelegramChatWithDB = () => {
       setHasUnsavedChanges(false);
       resetHistory({ messageContent, keyboard }); // 重置撤销历史
       clearLocalStorage(); // 清除自动保存
+      clearPendingOps(user.id);
+      setPendingOpsNotice(false);
 
       if (savedScreen) setCurrentScreenId(savedScreen.id);
 
@@ -796,6 +806,14 @@ const TelegramChatWithDB = () => {
       const message = error instanceof Error ? error.message : '未知错误';
       setLastError(message);
       toast.error("保存模版失败");
+      // 持久化待补偿请求
+      const pending = readPendingOps(user.id);
+      pending.push({
+        kind: "save",
+        payload: { name, message_content: messageContent, keyboard },
+      });
+      savePendingOps(pending, user.id);
+      setPendingOpsNotice(true);
     } finally {
       setIsLoading(false);
     }
@@ -877,12 +895,21 @@ const TelegramChatWithDB = () => {
       setHasUnsavedChanges(false);
       resetHistory({ messageContent, keyboard }); // 重置撤销历史
       clearLocalStorage(); // 清除自动保存
+      clearPendingOps(user.id);
+      setPendingOpsNotice(false);
       await loadScreens();
     } catch (error) {
       console.error('[UpdateScreen] Error:', error);
       const message = error instanceof Error ? error.message : '未知错误';
       setLastError(message);
       toast.error("更新模版失败");
+      const pending = readPendingOps(user.id);
+      pending.push({
+        kind: "update",
+        payload: { id: currentScreenId, message_content: messageContent, keyboard },
+      });
+      savePendingOps(pending, user.id);
+      setPendingOpsNotice(true);
     } finally {
       setIsLoading(false);
     }
@@ -1974,6 +2001,7 @@ const TelegramChatWithDB = () => {
             loadIssue={loadIssue}
             circularReferences={circularReferences}
             allowCircular={allowCircular}
+            pendingOpsNotice={pendingOpsNotice}
           />
         }
       />

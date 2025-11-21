@@ -15,6 +15,7 @@ interface BottomPanelProps {
     loadIssue: string | null;
     circularReferences: Array<{ path: string[]; screenNames: string[] }>;
     allowCircular: boolean;
+    pendingOpsNotice?: boolean;
 }
 
 export const BottomPanel: React.FC<BottomPanelProps> = ({
@@ -26,11 +27,20 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
     loadIssue,
     circularReferences,
     allowCircular,
+    pendingOpsNotice,
 }) => {
     return (
         <div className="p-4 space-y-4">
             {/* Logs Section */}
             <div className="space-y-2">
+                {pendingOpsNotice && (
+                    <Alert className="border-amber-500/50 bg-amber-500/10 py-2">
+                        <AlertCircle className="h-4 w-4 text-amber-600" />
+                        <AlertDescription className="text-xs text-foreground">
+                            有未同步的保存请求，请联网后重新保存。
+                        </AlertDescription>
+                    </Alert>
+                )}
                 {loadIssue && (
                     <Alert className="border-amber-500/50 bg-amber-500/10 py-2">
                         <AlertCircle className="h-4 w-4 text-amber-600" />
