@@ -7,6 +7,7 @@ Target: keep app and Supabase in sync, with strict RLS and typed client coverage
 - [ ] Verify RLS enabled on all three tables; ensure policies exist for select/insert/update/delete (owner-only except public read on `screens.is_public = true`).
 - [ ] Enable `pgcrypto` extension if `gen_random_uuid()` is used for `screens.id`.
 - [ ] CI guard: GitHub Actions workflow runs `npm run lint && npm run build` on every push/PR.
+- [ ] Types guard: regenerate types from live project. See `docs/supabase-types-regeneration.md`.
 
 ## Types & Client
 - [ ] Regenerate `src/integrations/supabase/types.ts` from the live project (now includes `screens`, `user_pins`, `screen_layouts`, relationships to `auth.users`).
