@@ -28,6 +28,7 @@ import { SidebarRight } from "./workbench/SidebarRight";
 import { CenterCanvas } from "./workbench/CenterCanvas";
 import { BottomPanel } from "./workbench/BottomPanel";
 import type { Json } from "@/integrations/supabase/types";
+import { withRetry, logSupabaseError } from "@/lib/supabaseRetry";
 
 const DEFAULT_MESSAGE = "Welcome to the Telegram UI Builder!\n\nEdit this message directly.\n\nFormatting:\n**bold text** for bold\n`code blocks` for code";
 const DEFAULT_KEYBOARD_TEMPLATE: KeyboardRow[] = [
@@ -385,11 +386,13 @@ const TelegramChatWithDB = () => {
   const loadPinnedCloud = useCallback(async () => {
     if (!user) return;
     try {
-      const { data, error } = await supabase
-        .from("user_pins")
-        .select("pinned_ids")
-        .eq("user_id", user.id)
-        .single();
+      const { data, error } = await withRetry(() =>
+        supabase
+          .from("user_pins")
+          .select("pinned_ids")
+          .eq("user_id", user.id)
+          .single(),
+      );
 
       if (error) {
         // If error is PGRST116 (no rows), it's fine, just return empty
@@ -426,8 +429,10 @@ const TelegramChatWithDB = () => {
     try {
       const payload: { user_id: string; pinned_ids: string[] } = { user_id: user.id, pinned_ids: ids };
       // upsert
-      await supabase.from("user_pins").upsert(payload, { onConflict: "user_id" });
-    } catch (e) { /* ignore */ }
+      await withRetry(() => supabase.from("user_pins").upsert(payload, { onConflict: "user_id" }));
+    } catch (e) {
+      logSupabaseError({ action: "upsert_pins", table: "user_pins", userId: user.id, error: e });
+    }
   }, [user]);
 
   const isPinned = useCallback((id?: string) => !!id && pinnedIds.includes(id), [pinnedIds]);
@@ -530,11 +535,13 @@ const TelegramChatWithDB = () => {
     setIsLoading(true);
     try {
       const request = async () => {
-        const { data, error } = await supabase
+      const { data, error } = await withRetry(() =>
+        supabase
           .from("screens")
           .select("*")
           .eq("user_id", user.id)
-          .order("created_at", { ascending: false });
+          .order("created_at", { ascending: false })
+      );
         if (error) throw error;
         return data ?? [];
       };
@@ -732,15 +739,19 @@ const TelegramChatWithDB = () => {
     const name = newScreenName.trim() || `模版 ${screens.length + 1}`;
 
     try {
-      const { data, error } = await supabase
-        .from("screens")
-        .insert([{
-          user_id: user.id,
-          name,
-          message_content: messageContent,
-          keyboard: keyboard as unknown as Json,
-          is_public: false,
-        }]).select().single();
+      const { data, error } = await withRetry(() =>
+        supabase
+          .from("screens")
+          .insert([{
+            user_id: user.id,
+            name,
+            message_content: messageContent,
+            keyboard: keyboard as unknown as Json,
+            is_public: false,
+          }])
+          .select()
+          .single()
+      );
 
       if (error) throw error;
       const savedScreenData = data as ScreenRow | null;
@@ -847,14 +858,16 @@ const TelegramChatWithDB = () => {
     }
 
     try {
-      const { error } = await supabase
-        .from("screens")
-        .update({
-          message_content: messageContent,
-          keyboard: keyboard as unknown as Json,
-        })
-        .eq("id", currentScreenId)
-        .eq("user_id", user.id);
+      const { error } = await withRetry(() =>
+        supabase
+          .from("screens")
+          .update({
+            message_content: messageContent,
+            keyboard: keyboard as unknown as Json,
+          })
+          .eq("id", currentScreenId)
+          .eq("user_id", user.id)
+      );
 
       if (error) throw error;
       toast.success("✅ 模版更新成功！");
@@ -1438,10 +1451,12 @@ const TelegramChatWithDB = () => {
             return;
           }
 
-          const { data, error } = await supabase
-            .from("screens")
-            .insert(rowsToInsert)
-            .select();
+          const { data, error } = await withRetry(() =>
+            supabase
+              .from("screens")
+              .insert(rowsToInsert)
+              .select()
+          );
 
           if (error) throw error;
           const rows = (data ?? []) as ScreenRow[];
@@ -1473,10 +1488,10 @@ const TelegramChatWithDB = () => {
               }));
 
               if (needsUpdate) {
-                return supabase
-                  .from("screens")
-                  .update({ keyboard: updatedKeyboard as unknown as Json })
-                  .eq("id", screen.id);
+                  return supabase
+                    .from("screens")
+                    .update({ keyboard: updatedKeyboard as unknown as Json })
+                    .eq("id", screen.id);
               }
               return null;
             })
