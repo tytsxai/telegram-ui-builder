@@ -385,10 +385,20 @@ const TelegramChatWithDB = () => {
       if (Array.isArray(arr)) {
         setPinnedIds(arr);
         persistPinned(arr);
-        setScreens(curr => reorderByPinned(curr, arr));
+        setScreens(curr => {
+          const set = new Set(arr);
+          type WithMeta = Screen & { created_at?: string };
+          const getCreatedAt = (s: WithMeta) => typeof s.created_at === 'string' ? Date.parse(s.created_at) : 0;
+          return [...curr].sort((a: WithMeta, b: WithMeta) => {
+            const ap = set.has(a.id) ? 1 : 0;
+            const bp = set.has(b.id) ? 1 : 0;
+            if (ap !== bp) return bp - ap;
+            return getCreatedAt(b) - getCreatedAt(a);
+          });
+        });
       }
     } catch (e) { /* ignore */ }
-  }, [user, persistPinned, reorderByPinned]);
+  }, [user, persistPinned]);
 
   const savePinnedCloud = useCallback(async (ids: string[]) => {
     if (!user) return;
@@ -493,7 +503,7 @@ const TelegramChatWithDB = () => {
       setScreens([]);
       setScreensLoaded(false);
     }
-  }, [user, reorderByPinned]);
+  }, [user]);
 
   const loadScreens = useCallback(async () => {
     if (!user) return [];

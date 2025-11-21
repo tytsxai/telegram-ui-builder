@@ -16,78 +16,39 @@ export type Database = {
     Tables: {
       screens: {
         Row: {
-          id: string
-          user_id: string
-          name: string
-          message_content: string
-          keyboard: Json
-          is_public: boolean
-          share_token: string | null
           created_at: string | null
-          updated_at?: string | null
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          name: string
-          message_content: string
+          id: string
+          is_public: boolean | null
           keyboard: Json
-          is_public?: boolean
-          share_token?: string | null
-          created_at?: string | null
-          updated_at?: string | null
+          message_content: string
+          name: string
+          share_token: string | null
+          updated_at: string | null
+          user_id: string | null
         }
-        Update: {
+        Insert: {
+          created_at?: string | null
           id?: string
-          user_id?: string
-          name?: string
-          message_content?: string
-          keyboard?: Json
-          is_public?: boolean
+          is_public?: boolean | null
+          keyboard: Json
+          message_content: string
+          name: string
           share_token?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
           created_at?: string | null
+          id?: string
+          is_public?: boolean | null
+          keyboard?: Json
+          message_content?: string
+          name?: string
+          share_token?: string | null
           updated_at?: string | null
+          user_id?: string | null
         }
-      }
-      user_pins: {
-        Row: {
-          user_id: string
-          pinned_ids: string[]
-          updated_at: string | null
-        }
-        Insert: {
-          user_id: string
-          pinned_ids?: string[]
-          updated_at?: string | null
-        }
-        Update: {
-          user_id?: string
-          pinned_ids?: string[]
-          updated_at?: string | null
-        }
-      }
-      screen_layouts: {
-        Row: {
-          user_id: string
-          screen_id: string
-          x: number
-          y: number
-          updated_at: string | null
-        }
-        Insert: {
-          user_id: string
-          screen_id: string
-          x: number
-          y: number
-          updated_at?: string | null
-        }
-        Update: {
-          user_id?: string
-          screen_id?: string
-          x?: number
-          y?: number
-          updated_at?: string | null
-        }
+        Relationships: []
       }
     }
     Views: {
