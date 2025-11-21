@@ -522,11 +522,11 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       try {
         const ids = positions.map((p) => p.id);
         if (ids.length === 0) {
-          await (supabase.from("screen_layouts" as any) as any).delete().eq("user_id", userId);
+          await supabase.from("screen_layouts").delete().eq("user_id", userId);
         } else {
-          await (supabase.from("screen_layouts" as any) as any).delete().eq("user_id", userId).in("screen_id", ids);
+          await supabase.from("screen_layouts").delete().eq("user_id", userId).in("screen_id", ids);
           const payload = positions.map((p) => ({ user_id: userId, screen_id: p.id, x: p.x, y: p.y }));
-          await (supabase.from("screen_layouts" as any) as any).upsert(payload, { onConflict: "user_id,screen_id" });
+          await supabase.from("screen_layouts").upsert(payload, { onConflict: "user_id,screen_id" });
         }
       } catch (e) { /* ignore cloud errors */ }
     }
@@ -625,8 +625,8 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     try {
       const ids = screens.map(s => s.id);
       if (ids.length === 0) return false;
-      const { data, error } = await (supabase
-        .from("screen_layouts" as any) as any)
+      const { data, error } = await supabase
+        .from("screen_layouts")
         .select("screen_id,x,y")
         .eq("user_id", userId)
         .in("screen_id", ids);
@@ -652,11 +652,11 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     lastSavedSignatureRef.current = '';
     setLayoutSavedAt(null);
     setUseSavedPositions(false);
-    if (userId) {
-      try {
-        await (supabase.from("screen_layouts" as any) as any).delete().eq("user_id", userId);
-      } catch (e) { /* ignore cloud errors */ }
-    }
+      if (userId) {
+        try {
+          await supabase.from("screen_layouts").delete().eq("user_id", userId);
+        } catch (e) { /* ignore cloud errors */ }
+      }
     setNodes(initialNodes);
     setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50);
   }, [POS_KEY, initialNodes, rfInstance, setNodes, userId]);

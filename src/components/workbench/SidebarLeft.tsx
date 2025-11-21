@@ -5,9 +5,10 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LogOut, FileText, Save, Trash2, Star, StarOff, Home, ArrowUpDown, Trash, Upload, Copy, Download, Network, Share2, RefreshCw, EyeOff } from "lucide-react";
 import { Screen } from "@/types/telegram";
+import type { User } from "@supabase/supabase-js";
 
 interface SidebarLeftProps {
-    user: any;
+    user: User;
     screens: Screen[];
     currentScreenId: string | undefined;
     entryScreenId: string | null;

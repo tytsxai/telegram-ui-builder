@@ -48,7 +48,70 @@ export type Database = {
           updated_at?: string | null
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "screens_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      },
+      user_pins: {
+        Row: {
+          pinned_ids: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          pinned_ids?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          pinned_ids?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_pins_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      },
+      screen_layouts: {
+        Row: {
+          screen_id: string
+          updated_at: string
+          user_id: string
+          x: number
+          y: number
+        }
+        Insert: {
+          screen_id: string
+          updated_at?: string
+          user_id: string
+          x: number
+          y: number
+        }
+        Update: {
+          screen_id?: string
+          updated_at?: string
+          user_id?: string
+          x?: number
+          y?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "screen_layouts_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
       }
     }
     Views: {

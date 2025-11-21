@@ -6,6 +6,7 @@ import InlineKeyboard from "@/components/InlineKeyboard";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import type { KeyboardRow, Screen } from "@/types/telegram";
+import type { Json } from "@/integrations/supabase/types";
 import type { User } from "@supabase/supabase-js";
 
 type ScreenRow = Omit<Screen, "keyboard"> & { keyboard: unknown };
@@ -98,7 +99,7 @@ const Share = () => {
           user_id: user.id,
           name: `${screen.name} (副本)`,
           message_content: screen.message_content,
-          keyboard: screen.keyboard as any,
+          keyboard: screen.keyboard as unknown as Json,
           is_public: false,
           share_token: null,
         }]);

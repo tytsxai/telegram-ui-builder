@@ -27,6 +27,7 @@ import { SidebarLeft } from "./workbench/SidebarLeft";
 import { SidebarRight } from "./workbench/SidebarRight";
 import { CenterCanvas } from "./workbench/CenterCanvas";
 import { BottomPanel } from "./workbench/BottomPanel";
+import type { Json } from "@/integrations/supabase/types";
 
 const DEFAULT_MESSAGE = "Welcome to the Telegram UI Builder!\n\nEdit this message directly.\n\nFormatting:\n**bold text** for bold\n`code blocks` for code";
 const DEFAULT_KEYBOARD_TEMPLATE: KeyboardRow[] = [
@@ -47,7 +48,7 @@ const cloneKeyboard = (rows: KeyboardRow[]): KeyboardRow[] =>
 
 const createDefaultKeyboard = (): KeyboardRow[] => cloneKeyboard(DEFAULT_KEYBOARD_TEMPLATE);
 
-const ensureKeyboard = (data: any): KeyboardRow[] => {
+const ensureKeyboard = (data: unknown): KeyboardRow[] => {
   if (Array.isArray(data)) return cloneKeyboard(data as KeyboardRow[]);
   return createDefaultKeyboard();
 };
@@ -385,7 +386,7 @@ const TelegramChatWithDB = () => {
     if (!user) return;
     try {
       const { data, error } = await supabase
-        .from("user_pins" as any)
+        .from("user_pins")
         .select("pinned_ids")
         .eq("user_id", user.id)
         .single();
@@ -397,7 +398,7 @@ const TelegramChatWithDB = () => {
         return [];
       }
 
-      const arr = (data as any)?.pinned_ids || [];
+      const arr = (data?.pinned_ids ?? []) as string[];
       if (Array.isArray(arr)) {
         setPinnedIds(arr);
         persistPinned(arr);
@@ -425,7 +426,7 @@ const TelegramChatWithDB = () => {
     try {
       const payload: { user_id: string; pinned_ids: string[] } = { user_id: user.id, pinned_ids: ids };
       // upsert
-      await supabase.from("user_pins" as any).upsert(payload, { onConflict: "user_id" });
+      await supabase.from("user_pins").upsert(payload, { onConflict: "user_id" });
     } catch (e) { /* ignore */ }
   }, [user]);
 
@@ -737,7 +738,7 @@ const TelegramChatWithDB = () => {
           user_id: user.id,
           name,
           message_content: messageContent,
-          keyboard: keyboard as any,
+          keyboard: keyboard as unknown as Json,
           is_public: false,
         }]).select().single();
 
@@ -850,7 +851,7 @@ const TelegramChatWithDB = () => {
         .from("screens")
         .update({
           message_content: messageContent,
-          keyboard: keyboard as any,
+          keyboard: keyboard as unknown as Json,
         })
         .eq("id", currentScreenId)
         .eq("user_id", user.id);
@@ -1428,7 +1429,7 @@ const TelegramChatWithDB = () => {
             user_id: user.id,
             name: buildImportedName(screen.name, index),
             message_content: screen.message_content,
-            keyboard: ensureKeyboard(screen.keyboard) as any,
+            keyboard: ensureKeyboard(screen.keyboard) as unknown as Json,
             is_public: false,
           }));
 
@@ -1474,7 +1475,7 @@ const TelegramChatWithDB = () => {
               if (needsUpdate) {
                 return supabase
                   .from("screens")
-                  .update({ keyboard: updatedKeyboard as any })
+                  .update({ keyboard: updatedKeyboard as unknown as Json })
                   .eq("id", screen.id);
               }
               return null;
