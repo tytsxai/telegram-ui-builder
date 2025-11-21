@@ -23,3 +23,7 @@ Scope: desktop workbench layout (left/right panels, center canvas, bottom panel)
 
 ## Share Page
 - [ ] 作者/更新时间显示，私有模版 token 不可访问；复制公开模版到账号成功。
+
+## Checklist Notes
+- **关系图**: 确认节点徽标/循环提示正常，布局保存/恢复有效。
+- **键盘编辑器**: 验证按钮链接屏幕/回调/URL 配置，避免循环或未配置按钮。
