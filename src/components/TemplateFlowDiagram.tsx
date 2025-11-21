@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
-import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown, Maximize2, Minimize2, Network } from 'lucide-react';
+import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown, Maximize2, Minimize2, Network, MoreVertical, Edit, Trash2, PlayCircle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { findAllCircularReferences, generateRelationshipGraph } from '@/lib/referenceChecker';
 import { supabase } from '@/integrations/supabase/client';
@@ -66,6 +66,9 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   const [edgeStraight, setEdgeStraight] = useState<boolean>(false);
   const [nodeScale, setNodeScale] = useState<number>(1);
   const [mindMapMode, setMindMapMode] = useState<boolean>(false);
+  const [isCompact, setIsCompact] = useState<boolean>(false);
+  const [highlightedPath, setHighlightedPath] = useState<{ nodes: Set<string>; edges: Set<string> } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const diagramRef = useRef<HTMLDivElement | null>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
@@ -334,6 +337,10 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       let nodeBorderStyle = isInCycle ? 'dashed' : 'solid';
       const isMatched = matched.has(screen.id);
 
+      // Highlight logic
+      const isDimmed = highlightedPath && !highlightedPath.nodes.has(screen.id);
+      const isHighlighted = highlightedPath && highlightedPath.nodes.has(screen.id);
+
       if (isCurrentScreen) {
         nodeColor = 'hsl(var(--primary))';
         nodeBorderStyle = 'solid';
@@ -392,6 +399,9 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
           width: nodeW,
           cursor: 'pointer',
           boxShadow: isCurrentScreen ? '0 0 0 3px hsla(var(--primary), 0.3)' : undefined,
+          opacity: isDimmed ? 0.2 : 1,
+          transition: 'opacity 0.2s, border-color 0.2s',
+          borderColor: isHighlighted ? 'hsl(var(--primary))' : undefined,
         },
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
@@ -430,29 +440,40 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       const buttonList = data.buttons.slice(0, 3).join(', ') + (data.buttons.length > 3 ? '...' : '');
       const fullList = data.buttons.join(', ');
 
+      const isEdgeDimmed = highlightedPath && !highlightedPath.edges.has(key);
+      const isEdgeHighlighted = highlightedPath && highlightedPath.edges.has(key);
+      const truncatedLabel = showButtonLabels
+        ? (buttonList.length > 15 ? buttonList.slice(0, 15) + '...' : buttonList)
+        : (data.count > 1 ? `${data.count}个按钮` : (data.buttons[0]?.length > 15 ? data.buttons[0].slice(0, 15) + '...' : data.buttons[0] ?? ''));
+
       edges.push({
         id: key,
         source: sourceId,
         target: targetId,
-        type: mindMapMode ? 'bezier' : (edgeStraight ? 'straight' : 'smoothstep'),
-        animated: sourceId === currentScreenId,
-        label: showButtonLabels ? buttonList : (data.count > 1 ? `${data.count}个按钮` : data.buttons[0] ?? ''),
+        type: 'smoothstep',
+        pathOptions: { borderRadius: 20 },
+        animated: sourceId === currentScreenId || isEdgeHighlighted,
+        label: truncatedLabel,
         labelStyle: {
-          fill: 'hsl(var(--foreground))',
+          fill: isEdgeHighlighted ? 'hsl(var(--primary))' : 'hsl(var(--foreground))',
           fontSize: 11,
           fontWeight: 500,
+          opacity: isEdgeDimmed ? 0.2 : 1,
         },
         labelBgStyle: {
           fill: 'hsl(var(--card))',
           fillOpacity: 0.9,
+          opacity: isEdgeDimmed ? 0.2 : 1,
         },
         style: {
-          stroke: sourceId === currentScreenId ? 'hsl(var(--primary))' : 'hsl(var(--border))',
-          strokeWidth: Math.min(3.5, 1 + Math.log2(1 + data.count)),
+          stroke: isEdgeHighlighted ? 'hsl(var(--primary))' : (sourceId === currentScreenId ? 'hsl(var(--primary))' : 'hsl(var(--border))'),
+          strokeWidth: isEdgeHighlighted ? 3 : Math.min(3.5, 1 + Math.log2(1 + data.count)),
+          opacity: isEdgeDimmed ? 0.2 : 1,
+          zIndex: isEdgeHighlighted ? 10 : 0,
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: sourceId === currentScreenId ? 'hsl(var(--primary))' : 'hsl(var(--border))',
+          color: isEdgeHighlighted ? 'hsl(var(--primary))' : (sourceId === currentScreenId ? 'hsl(var(--primary))' : 'hsl(var(--border))'),
           width: 20,
           height: 20,
         },
@@ -461,7 +482,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     });
 
     return { nodes, edges, edgeHints: edgeHintMap, matchIds: matched };
-  }, [screens, currentScreenId, orientation, showButtonLabels, cycleNodeIds, focusCurrent, searchQuery, nodeScale, hideIsolated, edgeStraight, mindMapMode]);
+  }, [screens, currentScreenId, orientation, showButtonLabels, cycleNodeIds, focusCurrent, searchQuery, nodeScale, hideIsolated, mindMapMode, highlightedPath]);
 
   // 打开时：加载偏好/自动选择模式与方向，并 fitView
   useEffect(() => {
@@ -734,8 +755,8 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setGraph({
       rankdir: orientation === 'horizontal' ? 'LR' : 'TB',
-      ranksep: 150 * nodeScale, // Increased spacing between levels
-      nodesep: 100 * nodeScale, // Increased spacing between siblings
+      ranksep: (isCompact ? 80 : 150) * nodeScale,
+      nodesep: (isCompact ? 50 : 100) * nodeScale,
       marginx: 100,
       marginy: 100,
     });
@@ -796,7 +817,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     setUseSavedPositions(false);
     setNodes(prev => prev.map(n => positions.has(n.id) ? { ...n, position: positions.get(n.id)! } : n));
     setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 80);
-  }, [screens, nodeScale, orientation, currentScreenId, setNodes, rfInstance]);
+  }, [screens, nodeScale, orientation, setNodes, rfInstance, isCompact]);
 
   // 边悬浮提示
   const [edgeTooltip, setEdgeTooltip] = useState<{ visible: boolean; x: number; y: number; text: string }>({ visible: false, x: 0, y: 0, text: '' });
@@ -815,6 +836,83 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     setEdgeTooltip(prev => ({ ...prev, x, y }));
   };
   const hideEdgeTooltip = () => setEdgeTooltip(prev => ({ ...prev, visible: false }));
+
+  const handleNodeMouseEnter = useCallback((_event: React.MouseEvent, node: Node) => {
+    const connectedNodes = new Set<string>();
+    const connectedEdges = new Set<string>();
+    connectedNodes.add(node.id);
+
+    // Traverse outgoing
+    const traverseOut = (id: string) => {
+      edges.forEach(e => {
+        if (e.source === id) {
+          connectedEdges.add(e.id);
+          if (!connectedNodes.has(e.target)) {
+            connectedNodes.add(e.target);
+            traverseOut(e.target);
+          }
+        }
+      });
+    };
+
+    // Traverse incoming
+    const traverseIn = (id: string) => {
+      edges.forEach(e => {
+        if (e.target === id) {
+          connectedEdges.add(e.id);
+          if (!connectedNodes.has(e.source)) {
+            connectedNodes.add(e.source);
+            traverseIn(e.source);
+          }
+        }
+      });
+    };
+
+    traverseOut(node.id);
+    traverseIn(node.id);
+    setHighlightedPath({ nodes: connectedNodes, edges: connectedEdges });
+  }, [edges]);
+
+  const handleNodeMouseLeave = useCallback(() => {
+    setHighlightedPath(null);
+  }, []);
+
+  const handleNodeContextMenu = useCallback((event: React.MouseEvent, node: Node) => {
+    event.preventDefault();
+    // Calculate position relative to the viewport or dialog
+    // Using clientX/Y for simplicity, but might need adjustment based on container
+    setContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
+  }, []);
+
+  const handleContextAction = (action: 'edit' | 'entry' | 'delete') => {
+    if (!contextMenu) return;
+    const { nodeId } = contextMenu;
+    setContextMenu(null);
+
+    if (action === 'edit') {
+      if (onScreenClick) {
+        onScreenClick(nodeId);
+        onOpenChange(false);
+      }
+    } else if (action === 'entry') {
+      // Placeholder for setting entry point
+      console.log('Set as entry:', nodeId);
+      // You would typically call an API or prop here
+    } else if (action === 'delete') {
+      if (confirm('确定要删除这个模版吗？此操作不可撤销。')) {
+        // Placeholder for delete
+        console.log('Delete:', nodeId);
+        // You would typically call an API or prop here
+      }
+    }
+  };
+
+  // Close context menu on click elsewhere
+  useEffect(() => {
+    const closeMenu = () => setContextMenu(null);
+    window.addEventListener('click', closeMenu);
+    return () => window.removeEventListener('click', closeMenu);
+  }, []);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -871,6 +969,10 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
               <div className="flex items-center gap-2" title="心智图模式（从中心向两侧发散）">
                 <span className="text-muted-foreground">心智图</span>
                 <Switch checked={mindMapMode} onCheckedChange={v => { setMindMapMode(!!v); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} />
+              </div>
+              <div className="flex items-center gap-2" title="紧凑模式（更密集的布局）">
+                <span className="text-muted-foreground">紧凑</span>
+                <Switch checked={isCompact} onCheckedChange={v => setIsCompact(!!v)} />
               </div>
               <div className="flex items-center gap-2" title="隐藏孤立节点（未被引用且无输出）">
                 <span className="text-muted-foreground">隐藏孤立</span>
@@ -937,6 +1039,9 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
             onNodesChange={handleNodesChange}
             onEdgesChange={onEdgesChange}
             onNodeClick={handleNodeClick}
+            onNodeMouseEnter={handleNodeMouseEnter}
+            onNodeMouseLeave={handleNodeMouseLeave}
+            onNodeContextMenu={handleNodeContextMenu}
             onEdgeMouseEnter={(e, edge) => showEdgeTooltip(e as unknown as React.MouseEvent, edge.id)}
             onEdgeMouseMove={(e) => moveEdgeTooltip(e as unknown as React.MouseEvent)}
             onEdgeMouseLeave={hideEdgeTooltip}
@@ -946,8 +1051,10 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
             minZoom={0.1}
             maxZoom={2}
             attributionPosition="bottom-left"
+            snapToGrid={true}
+            snapGrid={[15, 15]}
           >
-            <Background color="rgba(255,255,255,0.08)" gap={24} size={1} />
+            <Background color="rgba(255,255,255,0.08)" gap={15} size={1} />
             <Controls />
             <MiniMap
               nodeColor={(node) => {
@@ -963,6 +1070,32 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
               style={{ left: edgeTooltip.x, top: edgeTooltip.y }}
             >
               {edgeTooltip.text}
+            </div>
+          )}
+          {contextMenu && (
+            <div
+              className="fixed z-50 bg-popover text-popover-foreground border rounded-md shadow-md p-1 min-w-[120px] flex flex-col"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                className="flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground rounded-sm w-full text-left"
+                onClick={() => handleContextAction('edit')}
+              >
+                <Edit className="w-4 h-4" /> 编辑模版
+              </button>
+              <button
+                className="flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground rounded-sm w-full text-left"
+                onClick={() => handleContextAction('entry')}
+              >
+                <PlayCircle className="w-4 h-4" /> 设为入口
+              </button>
+              <button
+                className="flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-destructive/10 text-destructive hover:text-destructive rounded-sm w-full text-left"
+                onClick={() => handleContextAction('delete')}
+              >
+                <Trash2 className="w-4 h-4" /> 删除模版
+              </button>
             </div>
           )}
         </div>
