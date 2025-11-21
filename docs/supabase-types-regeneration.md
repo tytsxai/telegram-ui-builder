@@ -6,6 +6,7 @@ Purpose: keep `src/integrations/supabase/types.ts` aligned with the live Supabas
 - Install Supabase CLI: https://supabase.com/docs/guides/cli
 - Auth with your project: `supabase login`
 - Set env var `SUPABASE_PROJECT_REF` to the target project ref (e.g. `abcd1234`).
+- GitHub Actions option: add secrets `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF` to run `.github/workflows/supabase-types.yml` (manual trigger or weekly).
 
 ## Command
 ```sh
