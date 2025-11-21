@@ -1,0 +1,44 @@
+name: Supabase Types Sync
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1" # weekly Monday 03:00 UTC
+
+jobs:
+  gen-types:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Login Supabase
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: npx supabase login --token "$SUPABASE_ACCESS_TOKEN"
+
+      - name: Generate types
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: SUPABASE_PROJECT_REF=$SUPABASE_PROJECT_REF npm run supabase:types
+
+      - name: Lint & build
+        run: npm run lint && npm run build
+
+      - name: Commit & push types
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/integrations/supabase/types.ts
+          git commit -m "chore: sync supabase types" || true
+          git push
