@@ -20,7 +20,7 @@ const RepoBadge = () => (
     target="_blank"
     rel="noreferrer"
     aria-label="View the project on GitHub"
-    className="fixed left-3 bottom-3 sm:left-6 sm:bottom-6 z-50 inline-flex items-center gap-3 rounded-full bg-slate-900/80 px-3 py-2 text-white shadow-lg shadow-black/30 ring-1 ring-white/10 backdrop-blur hover:-translate-y-0.5 hover:bg-slate-900/90 transition-transform duration-150"
+    className="fixed left-3 bottom-16 sm:left-6 sm:bottom-16 z-50 inline-flex items-center gap-3 rounded-full bg-slate-900/80 px-3 py-2 text-white shadow-lg shadow-black/30 ring-1 ring-white/10 backdrop-blur hover:-translate-y-0.5 hover:bg-slate-900/90 transition-transform duration-150"
   >
     <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/15">
       <Github className="h-5 w-5" />
