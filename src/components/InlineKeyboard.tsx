@@ -95,7 +95,7 @@ const InlineKeyboard = React.memo(({
             {row.buttons.map((button) => (
               <div
                 key={button.id}
-                className="relative flex-1 group"
+                className="relative flex-1 group hover:z-50"
                 style={{ maxWidth: `${100 / row.buttons.length}%` }}
               >
                 <button
@@ -160,27 +160,29 @@ const InlineKeyboard = React.memo(({
                       />
                     )}
 
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleEditClick(row, button);
-                      }}
-                      className="absolute top-1 right-1 w-6 h-6 bg-primary text-primary-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow-md z-50 hover:scale-110"
-                      aria-label="Edit button"
-                      title="配置按钮跳转"
-                    >
-                      <Settings className="w-3 h-3" />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteButton?.(row.id, button.id);
-                      }}
-                      className="absolute top-1 right-8 w-6 h-6 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow-md z-50 hover:scale-110"
-                      aria-label="Delete button"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
+                    <div className="absolute -top-3 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-50">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditClick(row, button);
+                        }}
+                        className="w-6 h-6 bg-white text-black rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform border border-gray-200"
+                        aria-label="Edit button"
+                        title="配置按钮跳转"
+                      >
+                        <Settings className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteButton?.(row.id, button.id);
+                        }}
+                        className="w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform border border-red-600"
+                        aria-label="Delete button"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
                   </>
                 )}
               </div>
