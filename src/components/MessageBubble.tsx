@@ -257,7 +257,7 @@ const MessageBubble = forwardRef<MessageBubbleHandle, MessageBubbleProps>(({ con
 
   return (
     <div>
-      <div className="bg-gradient-to-br from-telegram-sent to-primary/10 text-white rounded-2xl rounded-br-md px-3 py-2 shadow-[0_4px_15px_rgba(0,0,0,0.3)] ring-1 ring-white/5 backdrop-blur-sm">
+      <div className="bg-telegram-sent text-white rounded-2xl rounded-br-md px-3 py-2 shadow-sm">
         <div
           ref={editableRef}
           contentEditable={!readOnly}

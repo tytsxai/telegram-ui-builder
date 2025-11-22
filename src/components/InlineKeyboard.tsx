@@ -89,7 +89,7 @@ const InlineKeyboard = React.memo(({
           screens={screens}
         />
       )}
-      <div className="space-y-[2px] mt-[2px]">
+      <div className="space-y-4 mt-4">
         {keyboard.map((row) => (
           <div key={row.id} className="flex gap-[2px]">
             {row.buttons.map((button) => (
@@ -161,16 +161,22 @@ const InlineKeyboard = React.memo(({
                     )}
 
                     <button
-                      onClick={() => handleEditClick(row, button)}
-                      className="absolute -top-2 -right-2 w-5 h-5 bg-primary text-primary-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow-md"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditClick(row, button);
+                      }}
+                      className="absolute -top-4 right-0 w-7 h-7 bg-primary text-primary-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow-md z-20 hover:scale-110"
                       aria-label="Edit button"
                       title="配置按钮跳转"
                     >
                       <Settings className="w-3 h-3" />
                     </button>
                     <button
-                      onClick={() => onDeleteButton?.(row.id, button.id)}
-                      className="absolute -top-2 -right-8 w-5 h-5 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow-md"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteButton?.(row.id, button.id);
+                      }}
+                      className="absolute -top-4 right-8 w-7 h-7 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow-md z-20 hover:scale-110"
                       aria-label="Delete button"
                     >
                       <X className="w-3 h-3" />
