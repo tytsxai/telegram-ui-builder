@@ -120,6 +120,10 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
+    background:
+      radial-gradient(circle at 20% 20%, hsla(197, 80%, 55%, 0.25), transparent 35%),
+      radial-gradient(circle at 80% 0%, hsla(280, 65%, 60%, 0.15), transparent 30%),
+      linear-gradient(135deg, hsl(216 20% 18%), hsl(210 20% 14%));
   }
 }

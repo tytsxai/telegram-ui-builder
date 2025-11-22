@@ -34,6 +34,7 @@ const clampPos = (pos: BadgePos): BadgePos => {
 const RepoBadge = () => {
   const [pos, setPos] = useState<BadgePos>(() => clampPos({ x: 12, y: 100 }));
   const dragRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
+  const isDraggingRef = useRef(false);
 
   useEffect(() => {
     try {
@@ -68,6 +69,7 @@ const RepoBadge = () => {
   useEffect(() => {
     const handleMove = (e: PointerEvent) => {
       if (!dragRef.current) return;
+       isDraggingRef.current = true;
       setPos((prev) =>
         clampPos({
           x: e.clientX - dragRef.current!.offsetX,
@@ -90,11 +92,21 @@ const RepoBadge = () => {
   }, []);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    isDraggingRef.current = false;
     const rect = (e.currentTarget as HTMLAnchorElement).getBoundingClientRect();
     dragRef.current = {
       offsetX: e.clientX - rect.left,
       offsetY: e.clientY - rect.top,
     };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (isDraggingRef.current) {
+      e.preventDefault();
+      isDraggingRef.current = false;
+    }
   };
 
   return (
@@ -104,6 +116,7 @@ const RepoBadge = () => {
       rel="noreferrer"
       aria-label="View the project on GitHub"
       onPointerDown={handlePointerDown}
+      onClick={handleClick}
       className="fixed z-50 flex h-11 w-11 items-center justify-center rounded-full bg-slate-900/85 text-white shadow-lg shadow-black/30 ring-1 ring-white/10 backdrop-blur hover:-translate-y-0.5 hover:bg-slate-900/95 transition-transform duration-150 cursor-grab active:cursor-grabbing"
       style={{ left: pos.x, top: pos.y }}
     >
