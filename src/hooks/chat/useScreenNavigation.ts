@@ -1,5 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Screen } from '@/types/telegram';
+
+const ENTRY_KEY = "telegram_ui_entry_screen";
 
 export const useScreenNavigation = (
     screens: Screen[],
@@ -8,6 +10,24 @@ export const useScreenNavigation = (
 ) => {
     const [currentScreenId, setCurrentScreenId] = useState<string | undefined>(undefined);
     const [navigationHistory, setNavigationHistory] = useState<string[]>([]);
+    const [entryScreenId, setEntryScreenId] = useState<string | null>(null);
+
+    // Load entry screen from local storage
+    useEffect(() => {
+        const savedEntry = localStorage.getItem(ENTRY_KEY);
+        if (savedEntry) {
+            setEntryScreenId(savedEntry);
+        }
+    }, []);
+
+    // Persist entry screen
+    useEffect(() => {
+        if (entryScreenId) {
+            localStorage.setItem(ENTRY_KEY, entryScreenId);
+        } else {
+            localStorage.removeItem(ENTRY_KEY);
+        }
+    }, [entryScreenId]);
 
     const handleNavigateBack = useCallback(() => {
         setNavigationHistory((prev) => {
@@ -24,11 +44,24 @@ export const useScreenNavigation = (
         setNavigationHistory((prev) => [...prev, screenId]);
     }, []);
 
+    const handleSetEntry = useCallback((screenId: string | null) => {
+        setEntryScreenId(screenId);
+    }, []);
+
+    const handleJumpToEntry = useCallback(() => {
+        if (entryScreenId && screens.some(s => s.id === entryScreenId)) {
+            handleNavigateToScreen(entryScreenId);
+        }
+    }, [entryScreenId, screens, handleNavigateToScreen]);
+
     return {
         currentScreenId,
         setCurrentScreenId,
         navigationHistory,
+        entryScreenId,
         handleNavigateBack,
         handleNavigateToScreen,
+        handleSetEntry,
+        handleJumpToEntry
     };
 };
