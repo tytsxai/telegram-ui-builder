@@ -41,10 +41,15 @@ export class SupabaseDataAccess {
   }
 
   async saveScreen(payload: SaveScreenInput) {
+    const targetUserId = payload.user_id ?? this.userId;
+    if (!targetUserId) {
+      throw new Error("saveScreen requires userId");
+    }
+    const nextPayload: SaveScreenInput = { ...payload, user_id: targetUserId };
     return this.run("insert", "screens", async () => {
       const { data, error } = await this.client
         .from("screens")
-        .insert([payload])
+        .insert([nextPayload])
         .select()
         .single();
       if (error) throw error;

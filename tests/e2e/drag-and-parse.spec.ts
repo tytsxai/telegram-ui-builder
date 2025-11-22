@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import type { Screen } from "@/types/telegram";
 
 test.describe("Drag-sort, media, parse mode, and codegen flow", () => {
   const storageKey = "sb-imblnkgnerlewrhdzqis-auth-token";
@@ -24,7 +25,7 @@ test.describe("Drag-sort, media, parse mode, and codegen flow", () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    const screens: any[] = [];
+    const screens: Screen[] = [];
 
     await page.addInitScript(
       ({ key, sessionData, userData }) => {
@@ -63,7 +64,7 @@ test.describe("Drag-sort, media, parse mode, and codegen flow", () => {
         return route.fulfill({ status: 200, headers: corsHeaders(), body: "" });
       }
       if (route.request().method() === "GET") {
-        return route.fulfill({ status: 200, headers: jsonHeaders(), body: JSON.stringify({ pinned_screen_ids: [] }) });
+        return route.fulfill({ status: 200, headers: jsonHeaders(), body: JSON.stringify({ pinned_ids: [] }) });
       }
       return route.fulfill({ status: 200, headers: jsonHeaders(), body: route.request().postData() ?? "{}" });
     });

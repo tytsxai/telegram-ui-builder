@@ -2,6 +2,7 @@ import { renderHook, act } from "@testing-library/react";
 import type { User } from "@supabase/supabase-js";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useSupabaseSync } from "../chat/useSupabaseSync";
+import type { Screen } from "@/types/telegram";
 
 const toast = vi.hoisted(() => ({
   success: vi.fn(),
@@ -18,7 +19,7 @@ const mockDataAccess = vi.hoisted(() => ({
   upsertPins: vi.fn(),
 }));
 
-const baseScreen = {
+const baseScreen: Screen = {
   id: "screen-1",
   user_id: "user-1",
   name: "Main",
@@ -55,7 +56,7 @@ describe("useSupabaseSync", () => {
     const pinsChain = {
       select: vi.fn().mockReturnValue({
         eq: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({ data: { pinned_screen_ids: ["screen-1"] }, error: null }),
+          single: vi.fn().mockResolvedValue({ data: { pinned_ids: ["screen-1"] }, error: null }),
         }),
       }),
     };
@@ -99,7 +100,7 @@ describe("useSupabaseSync", () => {
     });
 
     expect(mockDataAccess.saveScreen).toHaveBeenCalled();
-    expect(result.current.screens).toEqual(expect.arrayContaining([saved as any]));
+    expect(result.current.screens).toEqual(expect.arrayContaining([saved as Screen]));
     expect(result.current.shareLoading).toBe(false);
     expect(toast.success).toHaveBeenCalledWith("Screen saved");
   });
@@ -111,7 +112,7 @@ describe("useSupabaseSync", () => {
     const { result } = renderHook(() => useSupabaseSync(mockUser));
 
     act(() => {
-      result.current.setScreens([baseScreen as any]);
+      result.current.setScreens([baseScreen]);
     });
 
     await act(async () => {

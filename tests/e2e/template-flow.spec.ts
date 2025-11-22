@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import type { Screen } from "@/types/telegram";
 
 const storageKey = "sb-imblnkgnerlewrhdzqis-auth-token";
 const user = { id: "user-e2e", email: "e2e@example.com", role: "authenticated", aud: "authenticated" };
@@ -23,7 +24,7 @@ const jsonHeaders = () => ({
 });
 
 test("create -> edit -> save template flow", async ({ page }) => {
-  const screens: any[] = [];
+  const screens: Screen[] = [];
 
   await page.addInitScript(
     ({ key, sessionData, userData }) => {
@@ -62,7 +63,7 @@ test("create -> edit -> save template flow", async ({ page }) => {
       return route.fulfill({ status: 200, headers: corsHeaders(), body: "" });
     }
     if (route.request().method() === "GET") {
-      return route.fulfill({ status: 200, headers: jsonHeaders(), body: JSON.stringify({ pinned_screen_ids: [] }) });
+      return route.fulfill({ status: 200, headers: jsonHeaders(), body: JSON.stringify({ pinned_ids: [] }) });
     }
     return route.fulfill({ status: 200, headers: jsonHeaders(), body: route.request().postData() ?? "{}" });
   });

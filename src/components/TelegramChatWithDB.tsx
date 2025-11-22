@@ -31,7 +31,13 @@ import {
   detectCircularReferences,
   findAllCircularReferences
 } from "@/lib/referenceChecker";
-import { readPendingOps, processPendingOps } from "@/lib/pendingQueue";
+import {
+  readPendingOps,
+  processPendingOps,
+  enqueueSaveOperation,
+  enqueueUpdateOperation
+} from "@/lib/pendingQueue";
+import type { Json, TablesUpdate } from "@/integrations/supabase/types";
 
 // Helper functions (kept for compatibility)
 const cloneKeyboard = (rows: KeyboardRow[]): KeyboardRow[] =>
@@ -40,20 +46,54 @@ const cloneKeyboard = (rows: KeyboardRow[]): KeyboardRow[] =>
     buttons: row.buttons.map((btn) => ({ ...btn })),
   }));
 
-  const createDefaultKeyboard = (): KeyboardRow[] => [
-    {
-      id: "row-1",
-      buttons: [
-        { id: "btn-1", text: "Button 1", callback_data: "btn_1_action" },
+const createDefaultKeyboard = (): KeyboardRow[] => [
+  {
+    id: "row-1",
+    buttons: [
+      { id: "btn-1", text: "Button 1", callback_data: "btn_1_action" },
       { id: "btn-2", text: "Button 2", callback_data: "btn_2_action" },
     ],
   },
 ];
 
+type ImportInlineButton = Partial<KeyboardButton> & { text?: string };
+type ImportInlineKeyboard = ImportInlineButton[][];
+type ImportPayload = {
+  text?: string;
+  message_content?: string;
+  parse_mode?: string;
+  reply_markup?: { inline_keyboard?: ImportInlineKeyboard };
+  keyboard?: KeyboardRow[];
+  photo?: string;
+  video?: string;
+};
+
+const isNetworkError = (error: unknown) => {
+  if (!error) return false;
+  if (typeof navigator !== "undefined" && !navigator.onLine) return true;
+  if (error instanceof TypeError) return true;
+  const message = (error as Error)?.message ?? "";
+  return message.includes("Failed to fetch") || message.includes("NetworkError");
+};
+
+const safeRandomId = () => {
+  try {
+    // @ts-expect-error crypto may not exist in all environments
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      // @ts-expect-error randomUUID polyfill for browsers
+      return crypto.randomUUID();
+    }
+  } catch (e) {
+    void e;
+  }
+  return `local_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+};
+
 const TelegramChatWithDB = () => {
   const navigate = useNavigate();
   const messageBubbleRef = useRef<MessageBubbleHandle>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const queuedToastShownRef = useRef(false);
   const [user, setUser] = useState<User | null>(null);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -124,6 +164,15 @@ const TelegramChatWithDB = () => {
     dataAccess
   } = useSupabaseSync(user);
 
+  const refreshPendingQueueSize = useCallback(() => {
+    const size = readPendingOps(user?.id).length;
+    setPendingQueueSize(size);
+    setPendingOpsNotice(size > 0);
+    if (size === 0) {
+      queuedToastShownRef.current = false;
+    }
+  }, [setPendingQueueSize, user?.id]);
+
   const {
     handleButtonTextChange,
     handleButtonUpdate,
@@ -143,6 +192,10 @@ const TelegramChatWithDB = () => {
     handleSetEntry,
     handleJumpToEntry
   } = useScreenNavigation(screens, setScreens, loadScreens);
+
+  useEffect(() => {
+    refreshPendingQueueSize();
+  }, [refreshPendingQueueSize]);
 
   // Auth Effect
   useEffect(() => {
@@ -181,7 +234,7 @@ const TelegramChatWithDB = () => {
       keyboard: cloneKeyboard(screen.keyboard as KeyboardRow[]),
     });
     setCurrentScreenId(screen.id);
-  }, [loadMessagePayload, setParseMode, setMessageType, setMediaUrl]);
+  }, [loadMessagePayload, setParseMode, setMessageType, setMediaUrl, setKeyboard, setLastSavedSnapshot, setCurrentScreenId]);
 
   const handleButtonClick = (button: KeyboardButton, rowId: string) => {
     if (isPreviewMode) {
@@ -197,6 +250,146 @@ const TelegramChatWithDB = () => {
       setButtonEditDialogOpen(true);
     }
   };
+
+  const queueSaveOperation = useCallback(
+    (payload: SaveScreenInput) => {
+      const id = payload.id ?? safeRandomId();
+      const queuedPayload = { ...payload, id };
+      enqueueSaveOperation(queuedPayload, user?.id);
+      setScreens((prev) => [
+        ...prev,
+        {
+          id,
+          name: queuedPayload.name,
+          message_content: queuedPayload.message_content,
+          keyboard: cloneKeyboard(keyboard),
+          parse_mode: parseMode,
+          message_type: messageType,
+          media_url: mediaUrl,
+          share_token: queuedPayload.share_token ?? null,
+          is_public: queuedPayload.is_public ?? false,
+          created_at: new Date().toISOString(),
+          updated_at: null,
+          user_id: queuedPayload.user_id,
+        } as Screen,
+      ]);
+      setCurrentScreenId(id);
+      refreshPendingQueueSize();
+      setPendingOpsNotice(true);
+      if (!queuedToastShownRef.current) {
+        toast.info("网络不可用，已排队保存请求");
+        queuedToastShownRef.current = true;
+      }
+    },
+    [keyboard, mediaUrl, messageType, parseMode, refreshPendingQueueSize, setCurrentScreenId, setScreens, setPendingOpsNotice, user?.id],
+  );
+
+  const queueUpdateOperation = useCallback(
+    (updatePayload: TablesUpdate<"screens">) => {
+      if (!currentScreenId) return;
+      enqueueUpdateOperation({ id: currentScreenId, update: updatePayload }, user?.id);
+      setScreens((prev) =>
+        prev.map((s) =>
+          s.id === currentScreenId
+            ? ({
+                ...s,
+                message_content: updatePayload.message_content ?? s.message_content,
+                keyboard: updatePayload.keyboard ? cloneKeyboard(updatePayload.keyboard as KeyboardRow[]) : s.keyboard,
+                name: updatePayload.name ?? s.name,
+                updated_at: updatePayload.updated_at ?? s.updated_at,
+              } as Screen)
+            : s,
+        ),
+      );
+      refreshPendingQueueSize();
+      setPendingOpsNotice(true);
+      if (!queuedToastShownRef.current) {
+        toast.info("网络不可用，更新已排队");
+        queuedToastShownRef.current = true;
+      }
+    },
+    [currentScreenId, refreshPendingQueueSize, setScreens, setPendingOpsNotice, user?.id],
+  );
+
+  const replayPendingQueue = useCallback(async () => {
+    if (!user) {
+      refreshPendingQueueSize();
+      return;
+    }
+
+    const queued = readPendingOps(user.id);
+    if (queued.length === 0) {
+      refreshPendingQueueSize();
+      return;
+    }
+
+    setRetryingQueue(true);
+    try {
+      const remaining = await processPendingOps({
+        userId: user.id,
+        backoffMs: 400,
+        maxAttempts: 3,
+        execute: async (item) => {
+          if (item.kind === "save") {
+            const saved = await dataAccess.saveScreen(item.payload);
+            if (saved) {
+              setScreens((prev) => {
+                const idx = prev.findIndex((s) => s.id === (item.payload.id ?? (saved as Screen).id));
+                if (idx === -1) return prev;
+                const next = [...prev];
+                next[idx] = { ...(saved as Screen), keyboard: (saved as Screen).keyboard as KeyboardRow[] } as Screen;
+                return next;
+              });
+              setLastSavedSnapshot({
+                messageContent: item.payload.message_content,
+                keyboard: cloneKeyboard(item.payload.keyboard as KeyboardRow[]),
+              });
+              setCurrentScreenId((current) => current ?? (saved as Screen).id);
+            }
+          } else {
+            const updated = await dataAccess.updateScreen({ screenId: item.payload.id, update: item.payload.update });
+            setScreens((prev) =>
+              prev.map((s) =>
+                s.id === item.payload.id
+                  ? ({ ...(updated as Screen), keyboard: (updated as Screen).keyboard as KeyboardRow[] } as Screen)
+                  : s,
+              ),
+            );
+            if (item.payload.update.message_content || item.payload.update.keyboard) {
+              setLastSavedSnapshot({
+                messageContent: (item.payload.update.message_content as string) ?? serializeMessagePayload(),
+                keyboard: item.payload.update.keyboard
+                  ? cloneKeyboard(item.payload.update.keyboard as KeyboardRow[])
+                  : cloneKeyboard(keyboard),
+              });
+            }
+          }
+        },
+        onPermanentFailure: () => {
+          setPendingOpsNotice(true);
+          toast.error("离线队列重试失败，请检查网络后重试");
+        },
+      });
+      setPendingQueueSize(remaining.length);
+      setPendingOpsNotice(remaining.length > 0);
+      if (remaining.length === 0) {
+        queuedToastShownRef.current = false;
+        toast.success("离线队列已同步");
+      }
+    } finally {
+      setRetryingQueue(false);
+    }
+  }, [
+    dataAccess,
+    keyboard,
+    refreshPendingQueueSize,
+    serializeMessagePayload,
+    setCurrentScreenId,
+    setPendingOpsNotice,
+    setPendingQueueSize,
+    setScreens,
+    user,
+  ]);
 
   const createNewScreen = useCallback(() => {
     setMessageContent("Welcome to the Telegram UI Builder!\n\nEdit this message directly.");
@@ -220,13 +413,22 @@ const TelegramChatWithDB = () => {
       return;
     }
 
+    const payload: SaveScreenInput = {
+      user_id: user.id,
+      name: newScreenName,
+      message_content: serializeMessagePayload(),
+      keyboard: keyboard as Json,
+      is_public: false,
+      share_token: null,
+    };
+
+    if (isOffline) {
+      queueSaveOperation(payload);
+      return;
+    }
+
     try {
-      const savedScreen = await saveScreen({
-        user_id: user.id,
-        name: newScreenName,
-        message_content: serializeMessagePayload(),
-        keyboard: keyboard as any,
-      });
+      const savedScreen = await saveScreen(payload);
       if (savedScreen) {
         applyScreenState({
           ...(savedScreen as Screen),
@@ -237,23 +439,37 @@ const TelegramChatWithDB = () => {
           media_url: mediaUrl,
         } as Screen);
         setNewScreenName("");
+        setLastSavedSnapshot({
+          messageContent: payload.message_content,
+          keyboard: cloneKeyboard(keyboard),
+        });
       }
     } catch (error) {
-      // Error handled in hook
+      if (isNetworkError(error)) {
+        queueSaveOperation(payload);
+        return;
+      }
     }
   };
 
-  const handleUpdateScreen = async () => {
+  const handleUpdateScreen = useCallback(async () => {
     if (!currentScreenId || !user) return;
+
+    const updatePayload: TablesUpdate<"screens"> = {
+      message_content: serializeMessagePayload(),
+      keyboard: keyboard as Json,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (isOffline) {
+      queueUpdateOperation(updatePayload);
+      return;
+    }
 
     try {
       await updateScreen({
         screenId: currentScreenId,
-        update: {
-          message_content: serializeMessagePayload(),
-          keyboard: keyboard as any,
-          updated_at: new Date().toISOString(),
-        }
+        update: updatePayload
       });
       setLastSavedSnapshot({
         messageContent: serializeMessagePayload(),
@@ -261,9 +477,11 @@ const TelegramChatWithDB = () => {
       });
       toast.success("Screen updated");
     } catch (error) {
-      // Error handled in hook
+      if (isNetworkError(error)) {
+        queueUpdateOperation(updatePayload);
+      }
     }
-  };
+  }, [currentScreenId, isOffline, keyboard, queueUpdateOperation, serializeMessagePayload, setLastSavedSnapshot, updateScreen, user]);
 
   useGlobalShortcuts({
     onUndo: undo,
@@ -291,7 +509,13 @@ const TelegramChatWithDB = () => {
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [messageContent, keyboard, currentScreenId, user, isPreviewMode]);
+  }, [messageContent, keyboard, currentScreenId, user, isPreviewMode, handleUpdateScreen]);
+
+  useEffect(() => {
+    if (!isOffline) {
+      void replayPendingQueue();
+    }
+  }, [isOffline, replayPendingQueue]);
 
   const openRenameDialog = () => {
     if (currentScreenId) {
@@ -305,11 +529,26 @@ const TelegramChatWithDB = () => {
 
   const handleRenameScreen = async () => {
     if (!currentScreenId || !renameValue.trim()) return;
-    await updateScreen({
-      screenId: currentScreenId,
-      update: { name: renameValue }
-    });
-    setRenameDialogOpen(false);
+    const updatePayload: TablesUpdate<"screens"> = { name: renameValue };
+
+    if (isOffline) {
+      queueUpdateOperation(updatePayload);
+      setRenameDialogOpen(false);
+      return;
+    }
+
+    try {
+      await updateScreen({
+        screenId: currentScreenId,
+        update: updatePayload
+      });
+      setRenameDialogOpen(false);
+    } catch (error) {
+      if (isNetworkError(error)) {
+        queueUpdateOperation(updatePayload);
+        setRenameDialogOpen(false);
+      }
+    }
   };
 
   const handleCopyJSON = () => {
@@ -377,16 +616,17 @@ const TelegramChatWithDB = () => {
 
   const handleApplyEditedJSON = () => {
     try {
-      const data = JSON.parse(editableJSON);
-      if (typeof data !== "object" || data === null) {
+      const parsed = JSON.parse(editableJSON) as unknown;
+      if (!parsed || typeof parsed !== "object") {
         throw new Error("Invalid JSON structure");
       }
+      const data = parsed as ImportPayload;
 
       const nextMessage =
         typeof data.text === "string"
           ? data.text
-          : typeof (data as { message_content?: string }).message_content === "string"
-            ? (data as { message_content: string }).message_content
+          : typeof data.message_content === "string"
+            ? data.message_content
             : null;
 
       if (nextMessage) {
@@ -394,18 +634,20 @@ const TelegramChatWithDB = () => {
         setMessageContent(nextMessage);
       }
 
-      if (typeof (data as any).parse_mode === "string") {
-        const mode = (data as any).parse_mode === "MarkdownV2" ? "MarkdownV2" : "HTML";
+      if (typeof data.parse_mode === "string") {
+        const mode = data.parse_mode === "MarkdownV2" ? "MarkdownV2" : "HTML";
         setParseMode(mode);
       }
 
-      const inlineKeyboard = (data as any).reply_markup?.inline_keyboard;
-      const internalKeyboard = (data as any).keyboard;
+      const inlineKeyboard = Array.isArray(data.reply_markup?.inline_keyboard)
+        ? (data.reply_markup?.inline_keyboard as ImportInlineKeyboard)
+        : undefined;
+      const internalKeyboard = data.keyboard;
       const nextKeyboard = inlineKeyboard ?? internalKeyboard;
 
       if (nextKeyboard) {
         if (inlineKeyboard) {
-          const mapped: KeyboardRow[] = inlineKeyboard.map((row: any[], rowIdx: number) => ({
+          const mapped: KeyboardRow[] = inlineKeyboard.map((row, rowIdx) => ({
             id: `row-${rowIdx}-${Date.now()}`,
             buttons: row.map((btn, btnIdx) => ({
               id: btn.id ?? `btn-${rowIdx}-${btnIdx}-${Date.now()}`,
@@ -423,12 +665,12 @@ const TelegramChatWithDB = () => {
         }
       }
 
-      if (typeof (data as any).photo === "string") {
+      if (typeof data.photo === "string") {
         setMessageType("photo");
-        setMediaUrl((data as any).photo);
-      } else if (typeof (data as any).video === "string") {
+        setMediaUrl(data.photo);
+      } else if (typeof data.video === "string") {
         setMessageType("video");
-        setMediaUrl((data as any).video);
+        setMediaUrl(data.video);
       } else {
         setMessageType("text");
         setMediaUrl("");
@@ -469,41 +711,66 @@ const TelegramChatWithDB = () => {
       });
       return next;
     });
-  }, [currentScreenId, pushToHistory, messageContent, setKeyboard]);
+  }, [currentScreenId, pushToHistory, messageContent, setKeyboard, setScreens]);
 
   const generateCode = useCallback((framework: typeof codegenFramework) => {
     const escapeStr = (val: string) => val.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
     const payload = convertToTelegramFormat();
-    const kb = (payload as any).reply_markup?.inline_keyboard ?? [];
-    const buildButtons = () =>
+    type ExportPayload = ReturnType<typeof convertToTelegramFormat>;
+    type ExportInlineKeyboard = NonNullable<ExportPayload["reply_markup"]>["inline_keyboard"];
+    const kb: ExportInlineKeyboard = payload.reply_markup?.inline_keyboard ?? [];
+    const buildPythonInlineKeyboard = () =>
       kb
         .map(
-          (row: any[]) =>
+          (row) =>
+            "    [" +
+            row
+              .map((btn) => {
+                const action = btn.url ? `url="${escapeStr(btn.url)}"` : `callback_data="${escapeStr(btn.callback_data || "")}"`;
+                return `InlineKeyboardButton(text="${escapeStr(btn.text)}", ${action})`;
+              })
+              .join(", ") +
+            "]"
+        )
+        .join("\n");
+    const buildTelegrafKeyboard = () => {
+      if (!kb.length) return "Markup.inlineKeyboard([])";
+      const rows = kb
+        .map(
+          (row) =>
             "[" +
             row
-              .map((btn: any) => {
-                const action = btn.url ? `url="${escapeStr(btn.url)}"` : `callback_data="${escapeStr(btn.callback_data)}"`;
-                return `{ text: "${escapeStr(btn.text)}", ${action} }`;
+              .map((btn) => {
+                const actionValue = btn.url ? `"${escapeStr(btn.url)}"` : `"${escapeStr(btn.callback_data || "")}"`;
+                return `Markup.button.${btn.url ? "url" : "callback"}("${escapeStr(btn.text)}", ${actionValue})`;
               })
               .join(", ") +
             "]"
         )
         .join(",\n    ");
+      return `Markup.inlineKeyboard([\n    ${rows}\n  ])`;
+    };
 
-    const captionRaw = "text" in payload ? (payload as any).text : (payload as any).caption || "";
-    const mediaRaw = "photo" in payload ? (payload as any).photo : "video" in payload ? (payload as any).video : null;
+    const captionRaw = "text" in payload ? payload.text : payload.caption || "";
+    const mediaRaw = "photo" in payload ? payload.photo : "video" in payload ? payload.video : null;
     const caption = escapeStr(captionRaw);
     const media = mediaRaw ? escapeStr(mediaRaw) : null;
-    const parseMode = (payload as any).parse_mode || "HTML";
+    const parseMode = payload.parse_mode;
 
     if (framework === "python-telegram-bot") {
-      return `from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup\nfrom telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes\n\nasync def start(update: Update, context: ContextTypes.DEFAULT_TYPE):\n    keyboard = [\n    ${buildButtons()}\n    ]\n    markup = InlineKeyboardMarkup(keyboard)\n    ${media ? `await update.message.reply_${messageType === "photo" ? "photo" : "video"}("${media}", caption="${caption}", parse_mode="${parseMode}", reply_markup=markup)` : `await update.message.reply_text("${caption}", parse_mode="${parseMode}", reply_markup=markup)`}\n\nasync def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):\n    query = update.callback_query\n    await query.answer()\n    await query.edit_message_text(text="Received: " + (query.data or ""))\n\napp = ApplicationBuilder().token(\"<BOT_TOKEN>\").build()\napp.add_handler(CommandHandler(\"start\", start))\napp.add_handler(CallbackQueryHandler(on_callback))\napp.run_polling()\n`;
+      const pythonKeyboard = kb.length ? `[\n${buildPythonInlineKeyboard()}\n    ]` : "[]";
+
+      return `from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup\nfrom telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes\n\nasync def start(update: Update, context: ContextTypes.DEFAULT_TYPE):\n    keyboard = ${pythonKeyboard}\n    markup = InlineKeyboardMarkup(keyboard)\n    ${media ? `await update.message.reply_${messageType === "photo" ? "photo" : "video"}("${media}", caption="${caption}", parse_mode="${parseMode}", reply_markup=markup)` : `await update.message.reply_text("${caption}", parse_mode="${parseMode}", reply_markup=markup)`}\n\nasync def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):\n    query = update.callback_query\n    await query.answer()\n    await query.edit_message_text(text="Received: " + (query.data or ""))\n\napp = ApplicationBuilder().token("<BOT_TOKEN>").build()\napp.add_handler(CommandHandler("start", start))\napp.add_handler(CallbackQueryHandler(on_callback))\napp.run_polling()\n`;
     }
     if (framework === "aiogram") {
-      return `from aiogram import Bot, Dispatcher, F\nfrom aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery\nfrom aiogram.filters import Command\nfrom aiogram.enums import ParseMode\nfrom aiogram import Router\n\nrouter = Router()\n\n@router.message(Command(\"start\"))\nasync def cmd_start(message: Message):\n    kb = InlineKeyboardMarkup(inline_keyboard=[\n    ${buildButtons()}\n    ])\n    ${media ? `await message.answer_${messageType === "photo" ? "photo" : "video"}("${media}", caption="${caption}", parse_mode=ParseMode.${parseMode === "HTML" ? "HTML" : "MARKDOWN_V2"}, reply_markup=kb)` : `await message.answer("${caption}", parse_mode=ParseMode.${parseMode === "HTML" ? "HTML" : "MARKDOWN_V2"}, reply_markup=kb)`}\n\n@router.callback_query()\nasync def on_callback(query: CallbackQuery):\n    await query.answer(\"Received: \" + (query.data or \"\"))\n\nbot = Bot(token=\"<BOT_TOKEN>\", parse_mode=ParseMode.${parseMode === "HTML" ? "HTML" : "MARKDOWN_V2"})\ndp = Dispatcher()\ndp.include_router(router)\ndp.run_polling(bot)\n`;
+      const aiogramKeyboard = kb.length ? `InlineKeyboardMarkup(inline_keyboard=[\n${buildPythonInlineKeyboard()}\n    ])` : "InlineKeyboardMarkup(inline_keyboard=[])";
+
+      return `from aiogram import Bot, Dispatcher, F\nfrom aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery\nfrom aiogram.filters import Command\nfrom aiogram.enums import ParseMode\nfrom aiogram import Router\n\nrouter = Router()\n\n@router.message(Command("start"))\nasync def cmd_start(message: Message):\n    kb = ${aiogramKeyboard}\n    ${media ? `await message.answer_${messageType === "photo" ? "photo" : "video"}("${media}", caption="${caption}", parse_mode=ParseMode.${parseMode === "HTML" ? "HTML" : "MARKDOWN_V2"}, reply_markup=kb)` : `await message.answer("${caption}", parse_mode=ParseMode.${parseMode === "HTML" ? "HTML" : "MARKDOWN_V2"}, reply_markup=kb)`}\n\n@router.callback_query()\nasync def on_callback(query: CallbackQuery):\n    await query.answer("Received: " + (query.data or ""))\n\nbot = Bot(token="<BOT_TOKEN>", parse_mode=ParseMode.${parseMode === "HTML" ? "HTML" : "MARKDOWN_V2"})\ndp = Dispatcher()\ndp.include_router(router)\ndp.run_polling(bot)\n`;
     }
 
-    return `const { Telegraf, Markup } = require(\"telegraf\");\nconst bot = new Telegraf(process.env.BOT_TOKEN);\n\nbot.start((ctx) => {\n  const keyboard = ${kb.length ? "Markup.inlineKeyboard([\n    " + kb.map((row: any[]) => "[" + row.map((btn: any) => `Markup.button.${btn.url ? "url" : "callback"}(\"${btn.text}\", ${btn.url ? `"${btn.url}"` : `"${btn.callback_data}"`})`).join(", ") + "]`).join(",\n    ") + "\n  ])" : "Markup.inlineKeyboard([])"};\n  ${media ? `ctx.replyWith${messageType === "photo" ? "Photo" : "Video"}(\"${media}\", { caption: \"${caption}\", parse_mode: \"${parseMode}\", reply_markup: keyboard.reply_markup });` : `ctx.reply(\"${caption}\", { parse_mode: \"${parseMode}\", reply_markup: keyboard.reply_markup });`}\n});\n\nbot.on(\"callback_query\", (ctx) => ctx.answerCbQuery(\"Received: \" + (ctx.callbackQuery?.data || \"\")));\n\nbot.launch();\n`;
+    const telegrafKeyboard = buildTelegrafKeyboard();
+
+    return `const { Telegraf, Markup } = require("telegraf");\nconst bot = new Telegraf(process.env.BOT_TOKEN);\n\nbot.start((ctx) => {\n  const keyboard = ${telegrafKeyboard};\n  ${media ? `ctx.replyWith${messageType === "photo" ? "Photo" : "Video"}("${media}", { caption: "${caption}", parse_mode: "${parseMode}", reply_markup: keyboard.reply_markup });` : `ctx.reply("${caption}", { parse_mode: "${parseMode}", reply_markup: keyboard.reply_markup });`}\n});\n\nbot.on("callback_query", (ctx) => ctx.answerCbQuery("Received: " + (ctx.callbackQuery?.data || "")));\n\nbot.launch();\n`;
   }, [convertToTelegramFormat, messageType]);
 
   const codegenOutput = useMemo(() => generateCode(codegenFramework), [generateCode, codegenFramework]);
@@ -699,7 +966,7 @@ const TelegramChatWithDB = () => {
             pendingQueueSize={pendingQueueSize}
             retryingQueue={retryingQueue}
             isOffline={isOffline}
-            onRetryPendingOps={() => { /* Implement retry */ }}
+            onRetryPendingOps={replayPendingQueue}
             codegenFramework={codegenFramework}
             onCodegenFrameworkChange={setCodegenFramework}
             codegenOutput={codegenOutput}

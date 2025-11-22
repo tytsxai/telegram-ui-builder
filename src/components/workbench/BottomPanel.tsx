@@ -105,7 +105,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
                     <div className="flex items-center gap-2">
                         <select
                             value={codegenFramework}
-                            onChange={(e) => onCodegenFrameworkChange(e.target.value as any)}
+                            onChange={(e) => onCodegenFrameworkChange(e.target.value as "python-telegram-bot" | "aiogram" | "telegraf")}
                             className="h-8 rounded border bg-background text-foreground text-xs px-2"
                         >
                             <option value="python-telegram-bot">python-telegram-bot</option>

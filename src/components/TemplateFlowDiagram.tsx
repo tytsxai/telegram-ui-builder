@@ -372,7 +372,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     });
 
     return { nodes, edges, edgeHints: edgeHintMap, matchIds: matched };
-  }, [screens, currentScreenId, orientation, showButtonLabels, cycleNodeIds, focusCurrent, searchQuery, nodeScale, hideIsolated, mindMapMode, highlightedPath]);
+  }, [screens, currentScreenId, showButtonLabels, cycleNodeIds, focusCurrent, searchQuery, nodeScale, hideIsolated, highlightedPath, edgeStraight]);
 
   // 打开时：加载偏好/自动选择模式与方向，并 fitView
   useEffect(() => {

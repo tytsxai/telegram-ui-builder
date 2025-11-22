@@ -28,7 +28,11 @@ export const withRetry = async <T>(op: Op<T>, opts: RetryOptions = {}): Promise<
       return await op();
     } catch (err) {
       lastError = err;
-      // Postgrest errors might be wrapped; swallow only transient
+      const code = (err as Partial<PostgrestError> | undefined)?.code;
+      const isRetriable = !code || code === "429" || code.startsWith("5");
+      if (!isRetriable) {
+        break;
+      }
       await wait(backoff * (i + 1));
     }
   }

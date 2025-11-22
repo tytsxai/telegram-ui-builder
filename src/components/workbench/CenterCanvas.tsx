@@ -154,7 +154,7 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
                 {!isPreviewMode && (
                     <div className="flex gap-2 items-center">
                         <div className="flex items-center gap-1">
-                            <Select value={parseMode} onValueChange={(v) => onParseModeChange(v as any)}>
+                            <Select value={parseMode} onValueChange={(v) => onParseModeChange(v as "HTML" | "MarkdownV2")}>
                                 <SelectTrigger className="h-8 w-[150px]">
                                     <SelectValue placeholder="Parse mode" />
                                 </SelectTrigger>

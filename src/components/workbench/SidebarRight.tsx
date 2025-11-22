@@ -89,7 +89,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                         <Label>Parse Mode</Label>
                         <select
                             value={parseMode}
-                            onChange={(e) => onParseModeChange(e.target.value as any)}
+                            onChange={(e) => onParseModeChange(e.target.value as "HTML" | "MarkdownV2")}
                             className="w-full h-8 rounded border bg-background text-foreground text-xs px-2"
                         >
                             <option value="HTML">HTML</option>
@@ -100,7 +100,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                         <Label>消息类型</Label>
                         <select
                             value={messageType}
-                            onChange={(e) => onMessageTypeChange(e.target.value as any)}
+                            onChange={(e) => onMessageTypeChange(e.target.value as "text" | "photo" | "video")}
                             className="w-full h-8 rounded border bg-background text-foreground text-xs px-2"
                         >
                             <option value="text">文本</option>

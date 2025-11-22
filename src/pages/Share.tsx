@@ -12,6 +12,7 @@ import { SupabaseDataAccess } from "@/lib/dataAccess";
 import { useMemo } from "react";
 
 type ScreenRow = Omit<Screen, "keyboard"> & { keyboard: unknown };
+type ShareScreen = Screen & { rawMessageContent: string };
 
 const cloneKeyboard = (rows: KeyboardRow[]): KeyboardRow[] =>
   rows.map((row) => ({
@@ -28,11 +29,15 @@ const ensureKeyboard = (value: unknown): KeyboardRow[] => {
 
 const parseMessage = (raw: string) => {
   try {
-    const parsed = JSON.parse(raw) as any;
-    if (parsed && typeof parsed === "object" && "text" in parsed) {
-      const type = (parsed.type as "text" | "photo" | "video") || (parsed.photo ? "photo" : parsed.video ? "video" : "text");
-      const mediaUrl = parsed.photo || parsed.video || "";
-      return { text: parsed.text ?? parsed.caption ?? raw, mediaUrl, type };
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object") {
+      const typed = parsed as { text?: string; caption?: string; type?: "text" | "photo" | "video"; photo?: string; video?: string };
+      const hasContent = typed.text !== undefined || typed.caption !== undefined;
+      const type = typed.type || (typed.photo ? "photo" : typed.video ? "video" : "text");
+      const mediaUrl = typed.photo || typed.video || "";
+      if (hasContent || mediaUrl) {
+        return { text: typed.text ?? typed.caption ?? raw, mediaUrl, type };
+      }
     }
   } catch {
     // fallback
@@ -40,10 +45,22 @@ const parseMessage = (raw: string) => {
   return { text: raw, mediaUrl: "", type: "text" as const };
 };
 
+export const buildShareScreen = (row: ScreenRow): ShareScreen => {
+  const parsed = parseMessage(row.message_content);
+  return {
+    ...row,
+    rawMessageContent: row.message_content,
+    keyboard: ensureKeyboard(row.keyboard),
+    message_type: parsed.type,
+    media_url: parsed.mediaUrl,
+    message_content: parsed.text,
+  };
+};
+
 const Share = () => {
   const { token } = useParams();
   const navigate = useNavigate();
-  const [screen, setScreen] = useState<Screen | null>(null);
+  const [screen, setScreen] = useState<ShareScreen | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const dataAccess = useMemo(() => new SupabaseDataAccess(), []);
@@ -71,19 +88,12 @@ const Share = () => {
     const fetchScreen = async () => {
       try {
         const data = await dataAccess.getPublicScreenByToken(token);
-        if (data) {
-          const row = data as ScreenRow;
-          const parsed = parseMessage(row.message_content);
-          setScreen({
-            ...row,
-            keyboard: ensureKeyboard(row.keyboard),
-            message_type: parsed.type,
-            media_url: parsed.mediaUrl,
-            message_content: parsed.text,
-          });
-        } else {
+        if (!data) {
           setScreen(null);
+          return;
         }
+
+        setScreen(buildShareScreen(data as ScreenRow));
       } catch (error) {
         toast.error("模版未找到");
         navigate("/");
@@ -111,7 +121,7 @@ const Share = () => {
         {
           id: screen.id,
           name: screen.name,
-          message_content: screen.message_content,
+          message_content: screen.rawMessageContent,
           keyboard: screen.keyboard as unknown as Json,
           is_public: screen.is_public,
           share_token: screen.share_token,

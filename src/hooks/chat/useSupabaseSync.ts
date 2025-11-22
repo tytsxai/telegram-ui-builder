@@ -17,6 +17,7 @@ export const useSupabaseSync = (user: User | null) => {
     const [pendingQueueSize, setPendingQueueSize] = useState(0);
 
     const dataAccess = useMemo(() => new SupabaseDataAccess(supabase, { userId: user?.id }), [user]);
+    const makeRequestId = useCallback(() => `req_${Date.now()}_${Math.random().toString(16).slice(2)}`, []);
 
     const logSyncEvent = useCallback(
         (scope: "share" | "layout" | "queue", status: SyncStatus & { requestId?: string; message?: string }) => {
@@ -38,7 +39,9 @@ export const useSupabaseSync = (user: User | null) => {
     const loadScreens = useCallback(async () => {
         if (!user) return;
         setIsLoading(true);
+        const requestId = makeRequestId();
         try {
+            setShareSyncStatus({ state: "pending", requestId, message: "加载模版中" });
             const { data, error } = await supabase
                 .from('screens')
                 .select('*')
@@ -51,7 +54,7 @@ export const useSupabaseSync = (user: User | null) => {
             // Load pins
             const { data: pinsData, error: pinsError } = await supabase
                 .from('user_pins')
-                .select('pinned_screen_ids')
+                .select('pinned_ids')
                 .eq('user_id', user.id)
                 .single();
 
@@ -59,33 +62,47 @@ export const useSupabaseSync = (user: User | null) => {
                 console.error('Error loading pins:', pinsError);
             }
             if (pinsData) {
-                setPinnedIds(pinsData.pinned_screen_ids || []);
+                setPinnedIds(pinsData.pinned_ids || []);
             }
+            setShareSyncStatus({ state: "success", requestId, at: Date.now(), message: "已加载" });
 
         } catch (error) {
             console.error('Error loading screens:', error);
             toast.error('Failed to load screens');
+            setShareSyncStatus({
+                state: "error",
+                requestId,
+                message: error instanceof Error ? error.message : "加载失败",
+            });
         } finally {
             setIsLoading(false);
         }
-    }, [user]);
+    }, [user, makeRequestId]);
 
     const saveScreen = useCallback(async (payload: SaveScreenInput) => {
         if (!user) return null;
         setShareLoading(true);
+        const requestId = makeRequestId();
+        setShareSyncStatus({ state: "pending", requestId, message: "保存中" });
         try {
             const data = await dataAccess.saveScreen(payload);
             setScreens(prev => [...prev, data as unknown as Screen]);
             toast.success("Screen saved");
+            setShareSyncStatus({ state: "success", requestId, at: Date.now(), message: "保存成功" });
             return data;
         } catch (error) {
             console.error("Error saving screen:", error);
             toast.error("Failed to save screen");
+            setShareSyncStatus({
+                state: "error",
+                requestId,
+                message: error instanceof Error ? error.message : "保存失败",
+            });
             throw error;
         } finally {
             setShareLoading(false);
         }
-    }, [user, dataAccess]);
+    }, [user, dataAccess, makeRequestId]);
 
     const updateScreen = useCallback(async (params: UpdateScreenInput) => {
         if (!user) return null;
@@ -143,7 +160,7 @@ export const useSupabaseSync = (user: User | null) => {
         })();
 
         try {
-            await dataAccess.upsertPins({ user_id: user.id, pinned_screen_ids: nextPinned });
+            await dataAccess.upsertPins({ user_id: user.id, pinned_ids: nextPinned });
         } catch (error) {
             console.error("Error updating pins:", error);
             toast.error("Failed to update pins");
