@@ -841,7 +841,13 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-sm font-normal text-muted-foreground">
-              <Button variant="outline" size="sm" onClick={() => setOrientation(o => o === 'horizontal' ? 'vertical' : 'horizontal')} title="切换布局方向">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setOrientation(o => o === 'horizontal' ? 'vertical' : 'horizontal')}
+                title="切换布局方向"
+                disabled={!screens.length}
+              >
                 {orientation === 'horizontal' ? <ArrowLeftRight className="w-4 h-4 mr-1" /> : <ArrowUpDown className="w-4 h-4 mr-1" />}
                 {orientation === 'horizontal' ? '水平' : '垂直'}
               </Button>
@@ -849,13 +855,20 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
                 size="sm"
                 onClick={runSmartArrange}
                 title="智能整理（自动选择并细化布局顺序）"
+                disabled={!screens.length}
               >
                 <Network className="w-4 h-4 mr-1" /> 智能整理
               </Button>
-              <Button variant="outline" size="sm" onClick={() => { setUseSavedPositions(false); setNodes(initialNodes); setEdges(initialEdges); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} title="重新布局（自动排布）">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setUseSavedPositions(false); setNodes(initialNodes); setEdges(initialEdges); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }}
+                title="重新布局（自动排布）"
+                disabled={!screens.length}
+              >
                 <RotateCw className="w-4 h-4 mr-1" /> 重新布局
               </Button>
-              <Button variant="outline" size="sm" onClick={() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 })} title="重置视图">
+              <Button variant="outline" size="sm" onClick={() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 })} title="重置视图" disabled={!screens.length}>
                 重置视图
               </Button>
               <div className="flex items-center gap-2" title="显示边上的按钮名称">
