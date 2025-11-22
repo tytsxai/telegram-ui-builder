@@ -8,14 +8,16 @@ Goal: ship a production-grade Telegram UI builder with reliable Supabase persist
 - [ ] **Schema + Types lockstep**
   - Actions: Regenerate `src/integrations/supabase/types.ts` from live DB (tables: `screens`, `user_pins`, `screen_layouts`, relationships). Delete `fromUnsafe` usages. Add CI check that fails on unknown tables/type drift.
   - Acceptance: `npm run lint && npm run build && npm run test` pass on fresh types; CI fails if `types.ts` differs from DB; no stringly `.from("...")`.
-- [ ] **Reliable save + offline sync**
+- [~] **Reliable save + offline sync**
   - Actions: Centralize save/update/delete in a data access layer with retry/backoff; queue writes while `isOffline`, persist to local, and replay with ordered retries; reconcile with `useAutoSave` drafts; unsaved indicator clears only after confirmed remote write.
+  - Status: DataAccess + queue with retries/backoff landed; pending queue badge + manual retry added; telemetry with requestId ready. Still need per-item error surfacing and stronger 429 handling.
   - Acceptance: Simulated offline → edits queued → on reconnect they replay and clear; duplicate writes deduped by request id; toast only on failure; logs include request_id/user_id/table/action.
 - [ ] **Builder decomposition**
   - Actions: Split `src/components/TelegramChatWithDB.tsx` into hooks/components for persistence, navigation/preview, import/export, flow diagram; memoize heavy renders; share state via providers or centralized stores to avoid prop drilling.
   - Acceptance: Main component <500 LOC; renders on typing stay under 60ms (React profiler); no duplicate state sources for screens/entry/pins.
-- [ ] **Automated coverage**
+- [~] **Automated coverage**
   - Actions: Unit tests for `referenceChecker`, `validation`, `useUndoRedo`, import/export transforms, sync queue; Playwright path login → create screen → link button → export/import → share page; wire lint/tests/build into CI.
+  - Status: Unit tests for validation/reference/undo/queue/transform added; CI runs lint/test/build and Playwright. Need Supabase mock/env + full happy-path + offline replay coverage.
   - Acceptance: Coverage ≥80% on targeted modules; e2e passes in CI; pipeline blocks merges on failures.
 
 ### P1 - Product Polish (user-visible reliability)
@@ -42,12 +44,12 @@ Goal: ship a production-grade Telegram UI builder with reliable Supabase persist
 
 ## Rolling Checklist (runbook style)
 - [ ] Regen Supabase types → lint/build/test → commit types
-- [ ] Land data access layer + sync queue with retries/backoff + structured logs
-- [ ] Wire queue into save/update/delete/pin/layout flows + offline replay + UI badges
+- [x] Land data access layer + sync queue with retries/backoff + structured logs
+- [x] Wire queue into save/update/delete/pin/layout flows + offline replay + UI badges + manual retry
 - [ ] Split builder container into focused hooks/components; memoize heavy blocks
-- [ ] Ship unit tests (referenceChecker, validation, undo/redo, import/export, sync queue)
-- [ ] Add Playwright e2e happy path + offline replay check
-- [ ] CI: lint + typecheck + test + build, plus PR preview deploy
+- [~] Ship unit tests (referenceChecker, validation, undo/redo, import/export, sync queue) — core modules covered; add dataAccess/layout/share flows
+- [~] Add Playwright e2e happy path + offline replay check — scaffold in place; needs Supabase mock/env + full flow scripts
+- [x] CI: lint + typecheck + test + build, plus Playwright run (listing + execution)
 - [ ] Ship entry/share management, template library, onboarding
 - [ ] Harden keyboard editor + flow diagram UX and persistence
-- [ ] Add observability, audit, and callback-data helper
+- [~] Add observability, audit, and callback-data helper — telemetry publisher + badges ready; need sink integration and audit events
