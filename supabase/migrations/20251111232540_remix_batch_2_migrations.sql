@@ -1,7 +1,7 @@
 
 -- Migration: 20251016162012
 -- Create screens table for storing Telegram bot message screens
-CREATE TABLE public.screens (
+CREATE TABLE IF NOT EXISTS public.screens (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
@@ -14,7 +14,7 @@ CREATE TABLE public.screens (
 );
 
 -- Enable RLS
-ALTER TABLE public.screens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.screens ENABLE ROW LEVEL SECURITY;
 
 -- Users can view their own screens
 CREATE POLICY "Users can view own screens"
@@ -42,10 +42,10 @@ ON public.screens FOR DELETE
 USING (auth.uid() = user_id);
 
 -- Create index for share tokens
-CREATE INDEX idx_screens_share_token ON public.screens(share_token) WHERE share_token IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_screens_share_token ON public.screens(share_token) WHERE share_token IS NOT NULL;
 
 -- Create index for user lookups
-CREATE INDEX idx_screens_user_id ON public.screens(user_id);
+CREATE INDEX IF NOT EXISTS idx_screens_user_id ON public.screens(user_id);
 
 -- Update timestamp trigger
 CREATE OR REPLACE FUNCTION public.update_updated_at_column()

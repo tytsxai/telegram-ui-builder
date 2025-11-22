@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import type { KeyboardButton, Screen } from "@/types/telegram";
+import { BUTTON_TEXT_MAX, CALLBACK_DATA_MAX_BYTES } from "@/lib/validation";
 import { toast } from "sonner";
 
 export type ButtonValidationErrors = { text?: string; callback?: string; url?: string; link?: string };
@@ -20,7 +21,7 @@ export const validateButtonFields = (
 
   if (!button.text.trim()) {
     nextErrors.text = "按钮文本不能为空";
-  } else if (textLength > 30) {
+  } else if (textLength > BUTTON_TEXT_MAX) {
     nextErrors.text = "按钮文本最多30个字符";
   }
 
@@ -36,14 +37,14 @@ export const validateButtonFields = (
     nextErrors.link = "请选择要链接的模版";
   }
 
-  if (actionType !== "url") {
-    const value = button.callback_data ?? "";
-    if (!value.trim() && actionType === "callback") {
-      nextErrors.callback = "Callback data 不能为空";
-    } else if (calcBytes(value) > 64) {
-      nextErrors.callback = "callback_data 最多 64 字节";
+    if (actionType !== "url") {
+      const value = button.callback_data ?? "";
+      if (!value.trim() && actionType === "callback") {
+        nextErrors.callback = "Callback data 不能为空";
+      } else if (calcBytes(value) > CALLBACK_DATA_MAX_BYTES) {
+        nextErrors.callback = "callback_data 最多 64 字节";
+      }
     }
-  }
 
   return nextErrors;
 };
@@ -161,9 +162,9 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
             />
             <div className="flex items-center justify-between text-xs">
               <span className={errors.text ? "text-destructive" : "text-muted-foreground"}>
-                {errors.text ?? "最长 30 个字符，推荐简短可读"}
+                {errors.text ?? `最长 ${BUTTON_TEXT_MAX} 个字符，推荐简短可读`}
               </span>
-              <span className="text-muted-foreground">{textLength}/30</span>
+              <span className="text-muted-foreground">{textLength}/{BUTTON_TEXT_MAX}</span>
             </div>
           </div>
           

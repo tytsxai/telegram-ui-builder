@@ -36,7 +36,6 @@ export const useAutoSave = <TData,>({
         localStorage.setItem(storageKey, dataString);
         localStorage.setItem(`${storageKey}_timestamp`, Date.now().toString());
         lastSavedRef.current = dataString;
-        console.log('[AutoSave] 已保存到本地缓存');
       }
     } catch (error) {
       console.error('[AutoSave] 保存到 localStorage 失败:', error);
@@ -51,7 +50,6 @@ export const useAutoSave = <TData,>({
       localStorage.removeItem(storageKey);
       localStorage.removeItem(`${storageKey}_timestamp`);
       lastSavedRef.current = '';
-      console.log('[AutoSave] 已清除本地缓存');
     } catch (error) {
       console.error('[AutoSave] 清除 localStorage 失败:', error);
     }
@@ -72,7 +70,7 @@ export const useAutoSave = <TData,>({
         
         // 只恢复1小时内的数据
         if (now - savedTime < hourInMs) {
-          console.log('[AutoSave] 从本地缓存恢复数据');
+          // restored within retention window
           return JSON.parse(saved) as TData;
         }
         // 清除过期数据

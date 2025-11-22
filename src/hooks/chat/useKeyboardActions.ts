@@ -1,5 +1,7 @@
 import { useCallback } from 'react';
 import { KeyboardRow, KeyboardButton } from '@/types/telegram';
+import { MAX_BUTTONS_PER_ROW, MAX_KEYBOARD_ROWS } from '@/lib/validation';
+import { toast } from 'sonner';
 
 export const useKeyboardActions = (
     setKeyboard: (value: KeyboardRow[] | ((prev: KeyboardRow[]) => KeyboardRow[])) => void,
@@ -67,7 +69,7 @@ export const useKeyboardActions = (
                 buttons: row.buttons.map((btn) => ({ ...btn })),
             }));
             const lastRow = newKeyboard[newKeyboard.length - 1];
-            if (lastRow && lastRow.buttons.length < 3) {
+            if (lastRow && lastRow.buttons.length < MAX_BUTTONS_PER_ROW) {
                 const updatedRow: KeyboardRow = {
                     ...lastRow,
                     buttons: [
@@ -92,6 +94,9 @@ export const useKeyboardActions = (
                     ],
                 });
             }
+            if (lastRow && lastRow.buttons.length >= MAX_BUTTONS_PER_ROW) {
+                toast.warning(`每行最多 ${MAX_BUTTONS_PER_ROW} 个按钮，已新建一行。`);
+            }
             pushToHistory(messageContent, newKeyboard);
             return newKeyboard;
         });
@@ -100,6 +105,10 @@ export const useKeyboardActions = (
     const handleAddRow = useCallback(() => {
         setKeyboard((prev) => {
             const timestamp = Date.now();
+            if (prev.length >= MAX_KEYBOARD_ROWS) {
+                toast.error(`已达到最大行数（${MAX_KEYBOARD_ROWS}行）`);
+                return prev;
+            }
             const newKeyboard = [
                 ...prev,
                 {
