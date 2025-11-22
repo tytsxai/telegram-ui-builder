@@ -17,13 +17,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
-import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown, Maximize2, Minimize2, Network, MoreVertical, Edit, Trash2, PlayCircle } from 'lucide-react';
+import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown, Maximize2, Minimize2, Network, Edit, Trash2, PlayCircle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { findAllCircularReferences, generateRelationshipGraph } from '@/lib/referenceChecker';
 import dagre from '@dagrejs/dagre';
 import { SupabaseDataAccess } from '@/lib/dataAccess';
+import { supabase } from '@/integrations/supabase/client';
 
-import { Screen, KeyboardRow, KeyboardButton } from '@/types/telegram';
+import { Screen } from '@/types/telegram';
 import { SyncStatus, makeRequestId } from '@/types/sync';
 
 interface TemplateFlowDiagramProps {
@@ -65,7 +66,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   onSetEntry,
   onDeleteScreen,
 }) => {
-  const dataAccess = useMemo(() => new SupabaseDataAccess(undefined, { userId }), [userId]);
+  const dataAccess = useMemo(() => new SupabaseDataAccess(supabase, { userId }), [userId]);
   const layoutSyncRef = useRef(onLayoutSync);
   useEffect(() => {
     layoutSyncRef.current = onLayoutSync;

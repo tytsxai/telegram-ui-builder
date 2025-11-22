@@ -64,7 +64,13 @@ export const useChatState = () => {
     const canRedo = historyIndex < history.length - 1;
 
     const convertToTelegramFormat = useCallback((): TelegramExportPayload => {
-        const text = messageContent
+        const escapeHtml = (input: string) =>
+            input
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+
+        const text = escapeHtml(messageContent)
             .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')  // Bold
             .replace(/`(.*?)`/g, '<code>$1</code>')  // Code
             .replace(/_(.*?)_/g, '<i>$1</i>');       // Italic

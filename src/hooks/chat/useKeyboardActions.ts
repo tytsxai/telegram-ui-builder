@@ -20,9 +20,10 @@ export const useKeyboardActions = (
                 }
                 return row;
             });
+            pushToHistory(messageContent, newKeyboard);
             return newKeyboard;
         });
-    }, [setKeyboard]);
+    }, [setKeyboard, pushToHistory, messageContent]);
 
     const handleButtonUpdate = useCallback((rowId: string, buttonId: string, updatedButton: KeyboardButton) => {
         setKeyboard((prev) => {
@@ -60,16 +61,25 @@ export const useKeyboardActions = (
 
     const handleAddButton = useCallback(() => {
         setKeyboard((prev) => {
-            const newKeyboard = [...prev];
-            const lastRow = newKeyboard[newKeyboard.length - 1];
             const timestamp = Date.now();
-
+            const newKeyboard = prev.map((row) => ({
+                ...row,
+                buttons: row.buttons.map((btn) => ({ ...btn })),
+            }));
+            const lastRow = newKeyboard[newKeyboard.length - 1];
             if (lastRow && lastRow.buttons.length < 3) {
-                lastRow.buttons.push({
-                    id: `btn-${timestamp}`,
-                    text: "New Button",
-                    callback_data: `btn_${timestamp}`,
-                });
+                const updatedRow: KeyboardRow = {
+                    ...lastRow,
+                    buttons: [
+                        ...lastRow.buttons,
+                        {
+                            id: `btn-${timestamp}`,
+                            text: "New Button",
+                            callback_data: `btn_${timestamp}`,
+                        },
+                    ],
+                };
+                newKeyboard[newKeyboard.length - 1] = updatedRow;
             } else {
                 newKeyboard.push({
                     id: `row-${timestamp}`,

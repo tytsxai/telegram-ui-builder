@@ -127,20 +127,29 @@ export const useSupabaseSync = (user: User | null) => {
 
     const handleTogglePin = useCallback(async (screenId: string) => {
         if (!user) return;
-        const newPinnedIds = pinnedIds.includes(screenId)
-            ? pinnedIds.filter(id => id !== screenId)
-            : [...pinnedIds, screenId];
+        let previous: string[] = [];
+        const nextPinned = (() => {
+            let computed: string[] = [];
+            setPinnedIds((prev) => {
+                previous = prev;
+                if (prev.includes(screenId)) {
+                    computed = prev.filter(id => id !== screenId);
+                } else {
+                    computed = [...prev, screenId];
+                }
+                return computed;
+            });
+            return computed;
+        })();
 
-        setPinnedIds(newPinnedIds);
         try {
-            await dataAccess.upsertPins({ user_id: user.id, pinned_screen_ids: newPinnedIds });
+            await dataAccess.upsertPins({ user_id: user.id, pinned_screen_ids: nextPinned });
         } catch (error) {
             console.error("Error updating pins:", error);
             toast.error("Failed to update pins");
-            // Revert on error
-            setPinnedIds(pinnedIds);
+            setPinnedIds(previous);
         }
-    }, [user, pinnedIds, dataAccess]);
+    }, [user, dataAccess]);
 
     return {
         screens,

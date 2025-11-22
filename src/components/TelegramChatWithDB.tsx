@@ -40,11 +40,11 @@ const cloneKeyboard = (rows: KeyboardRow[]): KeyboardRow[] =>
     buttons: row.buttons.map((btn) => ({ ...btn })),
   }));
 
-const createDefaultKeyboard = (): KeyboardRow[] => [
-  {
-    id: "row-1",
-    buttons: [
-      { id: "btn-1", text: "Button 1", callback_data: "btn_1_action" },
+  const createDefaultKeyboard = (): KeyboardRow[] => [
+    {
+      id: "row-1",
+      buttons: [
+        { id: "btn-1", text: "Button 1", callback_data: "btn_1_action" },
       { id: "btn-2", text: "Button 2", callback_data: "btn_2_action" },
     ],
   },
@@ -72,6 +72,7 @@ const TelegramChatWithDB = () => {
   const [retryingQueue, setRetryingQueue] = useState(false);
   const [jsonSyncError, setJsonSyncError] = useState<string | null>(null);
   const [isClearingScreens, setIsClearingScreens] = useState(false);
+  const [lastSavedSnapshot, setLastSavedSnapshot] = useState<{ messageContent: string; keyboard: KeyboardRow[] } | null>(null);
 
   // Custom Hooks
   const isOffline = useNetworkStatus();
@@ -159,6 +160,16 @@ const TelegramChatWithDB = () => {
     navigate("/auth");
   };
 
+  const applyScreenState = useCallback((screen: Screen) => {
+    setMessageContent(screen.message_content);
+    setKeyboard(screen.keyboard as KeyboardRow[]);
+    setLastSavedSnapshot({
+      messageContent: screen.message_content,
+      keyboard: cloneKeyboard(screen.keyboard as KeyboardRow[]),
+    });
+    setCurrentScreenId(screen.id);
+  }, []);
+
   const handleButtonClick = (button: KeyboardButton, rowId: string) => {
     if (isPreviewMode) {
       if (button.linked_screen_id) {
@@ -179,6 +190,10 @@ const TelegramChatWithDB = () => {
     setKeyboard(createDefaultKeyboard());
     setCurrentScreenId(undefined);
     setNewScreenName("");
+    setLastSavedSnapshot({
+      messageContent: "Welcome to the Telegram UI Builder!\n\nEdit this message directly.",
+      keyboard: cloneKeyboard(createDefaultKeyboard()),
+    });
     toast.success("New screen created");
   }, [setMessageContent, setKeyboard, setCurrentScreenId]);
 
@@ -200,7 +215,11 @@ const TelegramChatWithDB = () => {
         keyboard: keyboard as any,
       });
       if (savedScreen) {
-        setCurrentScreenId(savedScreen.id);
+        applyScreenState({
+          ...(savedScreen as Screen),
+          keyboard: keyboard as KeyboardRow[],
+          message_content: messageContent,
+        } as Screen);
         setNewScreenName("");
       }
     } catch (error) {
@@ -220,6 +239,10 @@ const TelegramChatWithDB = () => {
           updated_at: new Date().toISOString(),
         }
       });
+      setLastSavedSnapshot({
+        messageContent,
+        keyboard: cloneKeyboard(keyboard),
+      });
       toast.success("Screen updated");
     } catch (error) {
       // Error handled in hook
@@ -233,6 +256,16 @@ const TelegramChatWithDB = () => {
     canUndo,
     canRedo,
   });
+
+  useEffect(() => {
+    // Initialize snapshot once to avoid showing "unsaved" on first render
+    if (!lastSavedSnapshot) {
+      setLastSavedSnapshot({
+        messageContent,
+        keyboard: JSON.parse(JSON.stringify(keyboard)),
+      });
+    }
+  }, [lastSavedSnapshot, messageContent, keyboard]);
 
   // Auto-save effect (simplified)
   useEffect(() => {
@@ -329,11 +362,64 @@ const TelegramChatWithDB = () => {
   const handleApplyEditedJSON = () => {
     try {
       const data = JSON.parse(editableJSON);
-      // Apply logic
+      if (typeof data !== "object" || data === null) {
+        throw new Error("Invalid JSON structure");
+      }
+
+      const nextMessage =
+        typeof data.text === "string"
+          ? data.text
+          : typeof (data as { message_content?: string }).message_content === "string"
+            ? (data as { message_content: string }).message_content
+            : null;
+
+      if (nextMessage) {
+        validateMessageContent(nextMessage);
+        setMessageContent(nextMessage);
+      }
+
+      const inlineKeyboard = (data as any).reply_markup?.inline_keyboard;
+      const internalKeyboard = (data as any).keyboard;
+      const nextKeyboard = inlineKeyboard ?? internalKeyboard;
+
+      if (nextKeyboard) {
+        if (inlineKeyboard) {
+          const mapped: KeyboardRow[] = inlineKeyboard.map((row: any[], rowIdx: number) => ({
+            id: `row-${rowIdx}-${Date.now()}`,
+            buttons: row.map((btn, btnIdx) => ({
+              id: btn.id ?? `btn-${rowIdx}-${btnIdx}-${Date.now()}`,
+              text: btn.text ?? "",
+              url: btn.url,
+              callback_data: btn.callback_data,
+              linked_screen_id: btn.linked_screen_id,
+            })),
+          }));
+          validateKeyboard(mapped);
+          setKeyboard(mapped);
+        } else {
+          validateKeyboard(nextKeyboard);
+          setKeyboard(() => JSON.parse(JSON.stringify(nextKeyboard)) as KeyboardRow[]);
+        }
+      }
+
+      setJsonSyncError(null);
       toast.success("Applied JSON changes");
     } catch (e) {
       setJsonSyncError("Invalid JSON");
     }
+  };
+
+  const generateShareToken = () => {
+    try {
+      // @ts-expect-error browser crypto
+      if (typeof crypto !== "undefined" && crypto.randomUUID) {
+        // @ts-expect-error randomUUID polyfill
+        return crypto.randomUUID();
+      }
+    } catch (e) {
+      void e;
+    }
+    return Math.random().toString(36).substring(2, 15);
   };
 
   const handleCopyOrShare = async (screenId: string) => {
@@ -342,24 +428,24 @@ const TelegramChatWithDB = () => {
     if (!screen) return;
 
     if (screen.is_public && screen.share_token) {
-      const url = `${window.location.origin}/s/${screen.share_token}`;
+      const url = `${window.location.origin}/share/${screen.share_token}`;
       await navigator.clipboard.writeText(url);
       toast.success("Link copied to clipboard");
     } else {
       // Enable sharing
-      const token = Math.random().toString(36).substring(2, 15);
+      const token = generateShareToken();
       await updateScreen({
         screenId,
         update: { is_public: true, share_token: token }
       });
-      const url = `${window.location.origin}/s/${token}`;
+      const url = `${window.location.origin}/share/${token}`;
       await navigator.clipboard.writeText(url);
       toast.success("Public link created and copied");
     }
   };
 
   const handleRotateShareLink = async (screenId: string) => {
-    const token = Math.random().toString(36).substring(2, 15);
+    const token = generateShareToken();
     await updateScreen({
       screenId,
       update: { share_token: token }
@@ -382,7 +468,10 @@ const TelegramChatWithDB = () => {
   const loadIssue = null; // Placeholder
   const circularReferences = []; // Placeholder
 
-  const hasUnsavedChanges = false; // Simplified for now
+  const hasUnsavedChanges = !!lastSavedSnapshot && (
+    lastSavedSnapshot.messageContent !== messageContent ||
+    JSON.stringify(lastSavedSnapshot.keyboard) !== JSON.stringify(keyboard)
+  );
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden">
@@ -405,8 +494,7 @@ const TelegramChatWithDB = () => {
               // Also load content into editor
               const screen = screens.find(s => s.id === id);
               if (screen) {
-                setMessageContent(screen.message_content);
-                setKeyboard(screen.keyboard as KeyboardRow[]);
+                applyScreenState(screen);
               }
             }}
             onNewScreen={createNewScreen}
@@ -507,8 +595,7 @@ const TelegramChatWithDB = () => {
             handleNavigateToScreen(screenId);
             const screen = screens.find(s => s.id === screenId);
             if (screen) {
-              setMessageContent(screen.message_content);
-              setKeyboard(screen.keyboard as KeyboardRow[]);
+              applyScreenState(screen);
             }
             toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);
           }}
@@ -608,8 +695,7 @@ const TelegramChatWithDB = () => {
             handleNavigateToScreen(screenId);
             const screen = screens.find(s => s.id === screenId);
             if (screen) {
-              setMessageContent(screen.message_content);
-              setKeyboard(screen.keyboard as KeyboardRow[]);
+              applyScreenState(screen);
             }
             toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);
           }}
@@ -627,8 +713,7 @@ const TelegramChatWithDB = () => {
             handleNavigateToScreen(screenId);
             const screen = screens.find(s => s.id === screenId);
             if (screen) {
-              setMessageContent(screen.message_content);
-              setKeyboard(screen.keyboard as KeyboardRow[]);
+              applyScreenState(screen);
             }
             toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);
           }}
