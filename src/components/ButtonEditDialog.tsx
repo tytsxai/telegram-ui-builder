@@ -8,6 +8,46 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import type { KeyboardButton, Screen } from "@/types/telegram";
 import { toast } from "sonner";
 
+export type ButtonValidationErrors = { text?: string; callback?: string; url?: string; link?: string };
+
+export const validateButtonFields = (
+  button: KeyboardButton,
+  actionType: "callback" | "url" | "link"
+): ButtonValidationErrors => {
+  const nextErrors: ButtonValidationErrors = {};
+  const calcBytes = (value: string) => new TextEncoder().encode(value).length;
+  const textLength = button.text?.length ?? 0;
+
+  if (!button.text.trim()) {
+    nextErrors.text = "按钮文本不能为空";
+  } else if (textLength > 30) {
+    nextErrors.text = "按钮文本最多30个字符";
+  }
+
+  if (actionType === "url") {
+    if (!button.url?.trim()) {
+      nextErrors.url = "请填写 URL 链接";
+    } else if (!/^https?:\/\//i.test(button.url.trim())) {
+      nextErrors.url = "URL 需以 http(s) 开头";
+    }
+  }
+
+  if (actionType === "link" && !button.linked_screen_id) {
+    nextErrors.link = "请选择要链接的模版";
+  }
+
+  if (actionType !== "url") {
+    const value = button.callback_data ?? "";
+    if (!value.trim() && actionType === "callback") {
+      nextErrors.callback = "Callback data 不能为空";
+    } else if (calcBytes(value) > 64) {
+      nextErrors.callback = "callback_data 最多 64 字节";
+    }
+  }
+
+  return nextErrors;
+};
+
 interface ButtonEditDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -73,42 +113,8 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
     setErrors((prev) => ({ ...prev, link: undefined, text: newText ? undefined : "按钮文本不能为空" }));
   };
 
-  const validateFields = useMemo(() => {
-    const nextErrors: { text?: string; callback?: string; url?: string; link?: string } = {};
-    if (!editedButton.text.trim()) {
-      nextErrors.text = "按钮文本不能为空";
-    } else if (textLength > 30) {
-      nextErrors.text = "按钮文本最多30个字符";
-    }
-
-    if (actionType === "url") {
-      if (!editedButton.url?.trim()) {
-        nextErrors.url = "请填写 URL 链接";
-      } else if (!/^https?:\/\//i.test(editedButton.url.trim())) {
-        nextErrors.url = "URL 需以 http(s) 开头";
-      }
-    }
-
-    if (actionType === "link") {
-      if (!editedButton.linked_screen_id) {
-        nextErrors.link = "请选择要链接的模版";
-      }
-    }
-
-    if (actionType !== "url") {
-      const value = editedButton.callback_data ?? "";
-      if (!value.trim() && actionType === "callback") {
-        nextErrors.callback = "Callback data 不能为空";
-      } else if (calcBytes(value) > 64) {
-        nextErrors.callback = "callback_data 最多 64 字节";
-      }
-    }
-
-    return nextErrors;
-  }, [actionType, editedButton.callback_data, editedButton.linked_screen_id, editedButton.text, editedButton.url, textLength]);
-
   const handleSave = () => {
-    const newErrors = validateFields;
+    const newErrors = validateButtonFields(editedButton, actionType);
     setErrors(newErrors);
     const hasError = Object.values(newErrors).some(Boolean);
     if (hasError) {
