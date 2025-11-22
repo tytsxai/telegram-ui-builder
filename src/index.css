@@ -8,119 +8,137 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* Light Mode (Default Telegram) */
+    /* Light Mode (Strict Native Telegram Day) */
     --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    /* #ffffff */
+    --foreground: 0 0% 0%;
 
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    /* #ffffff */
+    --card-foreground: 0 0% 0%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
+    /* #ffffff */
+    --popover-foreground: 0 0% 0%;
 
-    --primary: 207 90% 54%;
-    /* Telegram Blue #3390ec */
-    --primary-foreground: 0 0% 98%;
+    --primary: 210 82% 56%;
+    /* #3390ec */
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
+    --secondary: 210 20% 96%;
+    /* #f0f2f5 */
+    --secondary-foreground: 0 0% 0%;
 
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
+    --muted: 210 20% 96%;
+    /* #f0f2f5 */
+    --muted-foreground: 220 8% 46%;
+    /* #707579 */
 
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
+    --accent: 210 20% 96%;
+    /* #f0f2f5 */
+    --accent-foreground: 0 0% 0%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 207 90% 54%;
+    --border: 220 13% 91%;
+    /* #e4e4e5 */
+    --input: 220 13% 91%;
+    --ring: 210 82% 56%;
 
     --radius: 0.5rem;
 
     /* Telegram Specifics - Light Mode */
-    --telegram-blue: 207 90% 54%;
-    --telegram-bg: 210 20% 98%;
-    /* Light gray background pattern area */
+    --telegram-blue: 210 82% 56%;
+    /* #3390ec */
+    --telegram-bg: 206 28% 87%;
+    /* #dbeafe - Classic Light Blue-ish Chat BG */
     --telegram-sent: 87 58% 93%;
-    /* Native Light Green #effdde */
+    /* #effdde */
     --telegram-received: 0 0% 100%;
-    /* White bubble */
+    /* #ffffff */
     --telegram-text: 0 0% 0%;
-    --telegram-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
-    --telegram-button: 207 90% 54%;
+    --telegram-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+    --telegram-button: 210 82% 56%;
     --telegram-button-text: 0 0% 100%;
     --telegram-header: 0 0% 100%;
 
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 0 0% 0%;
+    --sidebar-primary: 210 82% 56%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 20% 96%;
+    --sidebar-accent-foreground: 210 82% 56%;
     --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-ring: 210 82% 56%;
   }
 
   .dark {
-    /* Dark Mode (Telegram Night / Dark Blue) */
+    /* Dark Mode (Strict Native Telegram Night) */
     --background: 210 30% 13%;
     /* #17212b */
-    --foreground: 0 0% 98%;
+    --foreground: 0 0% 100%;
 
     --card: 210 30% 13%;
     /* #17212b */
-    --card-foreground: 0 0% 98%;
+    --card-foreground: 0 0% 100%;
 
     --popover: 210 30% 13%;
-    --popover-foreground: 0 0% 98%;
+    /* #17212b */
+    --popover-foreground: 0 0% 100%;
 
-    --primary: 207 90% 54%;
-    --primary-foreground: 0 0% 98%;
+    --primary: 210 82% 56%;
+    /* #3390ec */
+    --primary-foreground: 0 0% 100%;
 
     --secondary: 211 36% 15%;
     /* #182533 */
-    --secondary-foreground: 0 0% 98%;
+    --secondary-foreground: 0 0% 100%;
 
     --muted: 211 36% 15%;
-    --muted-foreground: 215 20.2% 65.1%;
+    /* #182533 */
+    --muted-foreground: 215 20% 65%;
 
     --accent: 211 36% 15%;
-    --accent-foreground: 0 0% 98%;
+    /* #182533 */
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 211 30% 20%;
+    --border: 215 28% 10%;
+    /* Slightly darker than bg */
     --input: 211 36% 15%;
-    --ring: 212.7 26.8% 83.9%;
+    --ring: 210 82% 56%;
 
     /* Telegram Specifics - Dark Mode */
-    --telegram-blue: 207 90% 54%;
-    --telegram-bg: 209 32% 9%;
-    /* #0e1621 Darker bg for chat area */
+    --telegram-blue: 210 82% 56%;
+    /* #3390ec */
+    --telegram-bg: 215 40% 9%;
+    /* #0e1621 */
     --telegram-sent: 210 47% 32%;
     /* #2b5278 */
     --telegram-received: 211 36% 15%;
     /* #182533 */
     --telegram-text: 0 0% 100%;
     --telegram-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --telegram-button: 0 0% 100% / 0.1;
-    /* Translucent White */
+    --telegram-button: 210 82% 56%;
     --telegram-button-text: 0 0% 100%;
     --telegram-header: 210 30% 13%;
     /* #17212b */
 
     --sidebar-background: 210 30% 13%;
+    /* #17212b */
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 180 100% 50%;
-    --sidebar-primary-foreground: 222 47% 11%;
-    --sidebar-accent: 217 33% 17%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217 33% 20%;
-    --sidebar-ring: 180 100% 50%;
+    --sidebar-primary: 210 82% 56%;
+    /* #3390ec */
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 211 36% 15%;
+    /* #182533 */
+    --sidebar-accent-foreground: 210 82% 56%;
+    --sidebar-border: 215 40% 9%;
+    /* #0e1621 */
+    --sidebar-ring: 210 82% 56%;
   }
 }
 
