@@ -35,7 +35,8 @@ import {
   readPendingOps,
   processPendingOps,
   enqueueSaveOperation,
-  enqueueUpdateOperation
+  enqueueUpdateOperation,
+  clearPendingOps,
 } from "@/lib/pendingQueue";
 import type { Json, TablesUpdate } from "@/integrations/supabase/types";
 
@@ -390,6 +391,13 @@ const TelegramChatWithDB = () => {
     setScreens,
     user,
   ]);
+
+  const clearPendingQueue = useCallback(() => {
+    clearPendingOps(user?.id);
+    refreshPendingQueueSize();
+    setPendingOpsNotice(false);
+    toast.success("已清空离线队列");
+  }, [refreshPendingQueueSize, setPendingOpsNotice, user?.id]);
 
   const createNewScreen = useCallback(() => {
     setMessageContent("Welcome to the Telegram UI Builder!\n\nEdit this message directly.");
@@ -967,6 +975,7 @@ const TelegramChatWithDB = () => {
             retryingQueue={retryingQueue}
             isOffline={isOffline}
             onRetryPendingOps={replayPendingQueue}
+            onClearPendingOps={clearPendingQueue}
             codegenFramework={codegenFramework}
             onCodegenFrameworkChange={setCodegenFramework}
             codegenOutput={codegenOutput}

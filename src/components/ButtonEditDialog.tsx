@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import type { KeyboardButton, Screen } from "@/types/telegram";
+import { toast } from "sonner";
 
 interface ButtonEditDialogProps {
   open: boolean;
@@ -23,11 +24,17 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
     button.url ? "url" : button.linked_screen_id ? "link" : "callback"
   );
   const [search, setSearch] = useState("");
+  const [errors, setErrors] = useState<{ text?: string; callback?: string; url?: string; link?: string }>({});
 
   useEffect(() => {
     setEditedButton(button);
     setActionType(button.url ? "url" : button.linked_screen_id ? "link" : "callback");
+    setErrors({});
   }, [button]);
+
+  const calcBytes = (value: string) => new TextEncoder().encode(value).length;
+  const textLength = editedButton.text?.length ?? 0;
+  const callbackBytes = calcBytes(editedButton.callback_data ?? "");
 
   // 智能按钮命名：当选择链接模板时，自动添加后缀
   const handleScreenSelect = (screenId: string) => {
@@ -63,18 +70,49 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
       linked_screen_id: screenId,
       text: newText
     });
+    setErrors((prev) => ({ ...prev, link: undefined, text: newText ? undefined : "按钮文本不能为空" }));
   };
 
-  const handleSave = () => {
-    // 验证链接模版是否已选择
-    if (actionType === "link" && !editedButton.linked_screen_id) {
-      alert("请选择要链接的模版！");
-      return;
+  const validateFields = useMemo(() => {
+    const nextErrors: { text?: string; callback?: string; url?: string; link?: string } = {};
+    if (!editedButton.text.trim()) {
+      nextErrors.text = "按钮文本不能为空";
+    } else if (textLength > 30) {
+      nextErrors.text = "按钮文本最多30个字符";
     }
-    
-    // 验证 URL 是否已填写
-    if (actionType === "url" && !editedButton.url) {
-      alert("请填写 URL 链接！");
+
+    if (actionType === "url") {
+      if (!editedButton.url?.trim()) {
+        nextErrors.url = "请填写 URL 链接";
+      } else if (!/^https?:\/\//i.test(editedButton.url.trim())) {
+        nextErrors.url = "URL 需以 http(s) 开头";
+      }
+    }
+
+    if (actionType === "link") {
+      if (!editedButton.linked_screen_id) {
+        nextErrors.link = "请选择要链接的模版";
+      }
+    }
+
+    if (actionType !== "url") {
+      const value = editedButton.callback_data ?? "";
+      if (!value.trim() && actionType === "callback") {
+        nextErrors.callback = "Callback data 不能为空";
+      } else if (calcBytes(value) > 64) {
+        nextErrors.callback = "callback_data 最多 64 字节";
+      }
+    }
+
+    return nextErrors;
+  }, [actionType, editedButton.callback_data, editedButton.linked_screen_id, editedButton.text, editedButton.url, textLength]);
+
+  const handleSave = () => {
+    const newErrors = validateFields;
+    setErrors(newErrors);
+    const hasError = Object.values(newErrors).some(Boolean);
+    if (hasError) {
+      toast.error("请修正高亮字段后再保存");
       return;
     }
     
@@ -95,7 +133,6 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
       linked_screen_id: actionType === "link" ? editedButton.linked_screen_id : undefined,
     };
     
-    console.log('Saving button:', updated);
     onSave(updated);
     onOpenChange(false);
   };
@@ -114,7 +151,14 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
               value={editedButton.text}
               onChange={(e) => setEditedButton({ ...editedButton, text: e.target.value })}
               maxLength={30}
+              className={errors.text ? "border-destructive" : undefined}
             />
+            <div className="flex items-center justify-between text-xs">
+              <span className={errors.text ? "text-destructive" : "text-muted-foreground"}>
+                {errors.text ?? "最长 30 个字符，推荐简短可读"}
+              </span>
+              <span className="text-muted-foreground">{textLength}/30</span>
+            </div>
           </div>
           
           <Tabs value={actionType} onValueChange={(v) => setActionType(v as "callback" | "url" | "link")}>
@@ -131,10 +175,14 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
                 placeholder="button_action"
                 value={editedButton.callback_data || ""}
                 onChange={(e) => setEditedButton({ ...editedButton, callback_data: e.target.value })}
+                className={errors.callback ? "border-destructive" : undefined}
               />
-              <p className="text-xs text-muted-foreground">
-                用于识别按钮点击的数据，会发送给机器人
-              </p>
+              <div className="flex items-center justify-between text-xs">
+                <span className={errors.callback ? "text-destructive" : "text-muted-foreground"}>
+                  {errors.callback ?? "用于识别按钮点击的数据，会发送给机器人"}
+                </span>
+                <span className="text-muted-foreground">{callbackBytes}/64B</span>
+              </div>
             </TabsContent>
             
             <TabsContent value="url" className="space-y-2">
@@ -144,9 +192,10 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
                 placeholder="https://example.com"
                 value={editedButton.url || ""}
                 onChange={(e) => setEditedButton({ ...editedButton, url: e.target.value })}
+                className={errors.url ? "border-destructive" : undefined}
               />
-              <p className="text-xs text-muted-foreground">
-                点击按钮将打开此链接
+              <p className={`text-xs ${errors.url ? "text-destructive" : "text-muted-foreground"}`}>
+                {errors.url ?? "点击按钮将打开此链接"}
               </p>
             </TabsContent>
             
@@ -171,6 +220,7 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
                   <Select
                     value={editedButton.linked_screen_id || ""}
                     onValueChange={handleScreenSelect}
+                    disabled={screens.length === 0}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="选择要链接的模版" />
@@ -189,6 +239,7 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
                       ))}
                     </SelectContent>
                   </Select>
+                  {errors.link && <p className="text-xs text-destructive">{errors.link}</p>}
                   <div className="flex gap-2">
                     <Button
                       variant="outline"

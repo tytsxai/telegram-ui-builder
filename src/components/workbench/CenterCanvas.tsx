@@ -143,7 +143,7 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
                         {pendingQueueSize && pendingQueueSize > 0 && (
                             <span
                                 className="px-2 py-0.5 text-[10px] rounded-full border bg-amber-500/10 text-amber-700 border-amber-500/50"
-                                title="未同步的请求数"
+                                title="离线队列：连接网络后会自动重试，或在底部面板手动重试/清空"
                             >
                                 待同步 {pendingQueueSize}
                             </span>

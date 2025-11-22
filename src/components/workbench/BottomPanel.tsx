@@ -18,6 +18,7 @@ interface BottomPanelProps {
     pendingOpsNotice?: boolean;
     pendingQueueSize?: number;
     onRetryPendingOps?: () => void;
+    onClearPendingOps?: () => void;
     retryingQueue?: boolean;
     isOffline?: boolean;
     codegenFramework: "python-telegram-bot" | "aiogram" | "telegraf";
@@ -38,6 +39,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
     pendingOpsNotice,
     pendingQueueSize,
     onRetryPendingOps,
+    onClearPendingOps,
     retryingQueue,
     isOffline,
     codegenFramework,
@@ -63,6 +65,19 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
                                     onClick={onRetryPendingOps}
                                 >
                                     {retryingQueue ? "重试中..." : isOffline ? "离线中" : "立即重试同步"}
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 text-xs ml-2"
+                                    disabled={retryingQueue}
+                                    onClick={() => {
+                                        if (onClearPendingOps && confirm("确定要清空离线队列吗？未同步的更改将被丢弃。")) {
+                                            onClearPendingOps();
+                                        }
+                                    }}
+                                >
+                                    清空队列
                                 </Button>
                             </div>
                         </AlertDescription>
