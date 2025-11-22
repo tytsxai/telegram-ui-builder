@@ -165,7 +165,7 @@ const InlineKeyboard = React.memo(({
                         e.stopPropagation();
                         handleEditClick(row, button);
                       }}
-                      className="absolute -top-4 right-0 w-7 h-7 bg-primary text-primary-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow-md z-20 hover:scale-110"
+                      className="absolute top-1 right-1 w-6 h-6 bg-primary text-primary-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow-md z-50 hover:scale-110"
                       aria-label="Edit button"
                       title="配置按钮跳转"
                     >
@@ -176,7 +176,7 @@ const InlineKeyboard = React.memo(({
                         e.stopPropagation();
                         onDeleteButton?.(row.id, button.id);
                       }}
-                      className="absolute -top-4 right-8 w-7 h-7 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow-md z-20 hover:scale-110"
+                      className="absolute top-1 right-8 w-6 h-6 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow-md z-50 hover:scale-110"
                       aria-label="Delete button"
                     >
                       <X className="w-3 h-3" />
