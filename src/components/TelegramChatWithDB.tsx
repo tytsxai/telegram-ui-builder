@@ -421,6 +421,14 @@ const TelegramChatWithDB = () => {
       return;
     }
 
+    try {
+      validateMessageContent(messageContent);
+      validateKeyboard(keyboard);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "内容不合法，保存已取消");
+      return;
+    }
+
     const payload: SaveScreenInput = {
       user_id: user.id,
       name: newScreenName,
@@ -463,6 +471,14 @@ const TelegramChatWithDB = () => {
   const handleUpdateScreen = useCallback(async () => {
     if (!currentScreenId || !user) return;
 
+    try {
+      validateMessageContent(messageContent);
+      validateKeyboard(keyboard);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "内容不合法，更新已取消");
+      return;
+    }
+
     const updatePayload: TablesUpdate<"screens"> = {
       message_content: serializeMessagePayload(),
       keyboard: keyboard as Json,
@@ -489,7 +505,7 @@ const TelegramChatWithDB = () => {
         queueUpdateOperation(updatePayload);
       }
     }
-  }, [currentScreenId, isOffline, keyboard, queueUpdateOperation, serializeMessagePayload, setLastSavedSnapshot, updateScreen, user]);
+  }, [currentScreenId, isOffline, keyboard, messageContent, queueUpdateOperation, serializeMessagePayload, setLastSavedSnapshot, updateScreen, user]);
 
   useGlobalShortcuts({
     onUndo: undo,
