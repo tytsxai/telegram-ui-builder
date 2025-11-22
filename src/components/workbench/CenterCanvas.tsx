@@ -68,6 +68,15 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
     layoutSyncStatus,
     pendingQueueSize,
 }) => {
+    React.useEffect(() => {
+        const savedTheme = localStorage.getItem("theme");
+        if (savedTheme === "dark" || (!savedTheme && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+            document.documentElement.classList.add("dark");
+        } else {
+            document.documentElement.classList.remove("dark");
+        }
+    }, []);
+
     const renderStatusBadge = (label: string, status?: SyncStatus) => {
         if (!status || status.state === "idle") return null;
         const color =
@@ -135,6 +144,19 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
                         <Button variant="ghost" size="icon" onClick={onRedo} disabled={!canRedo} className="h-8 w-8" title="重做">
                             <Redo2 className="w-4 h-4" />
                         </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                                const isDark = document.documentElement.classList.toggle("dark");
+                                localStorage.setItem("theme", isDark ? "dark" : "light");
+                            }}
+                            className="h-8 w-8 ml-2"
+                            title="切换日间/夜间模式"
+                        >
+                            <span className="dark:hidden">🌙</span>
+                            <span className="hidden dark:inline">☀️</span>
+                        </Button>
                     </div>
                 )}
             </div>
@@ -153,9 +175,7 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
             )}
 
             {/* Phone Simulator */}
-            <div className="w-full bg-telegram-bg shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-[2.5rem] overflow-hidden border-[10px] border-slate-900 ring-1 ring-white/10 relative">
-                {/* Glass Reflection Overlay */}
-                <div className="absolute inset-0 pointer-events-none z-50 bg-gradient-to-tr from-white/5 to-transparent opacity-50 rounded-[2rem]" />
+            <div className="w-full bg-telegram-bg shadow-xl rounded-3xl overflow-hidden border-8 border-slate-800 ring-1 ring-slate-900/10 relative transition-colors duration-300">
                 {/* Status Bar Mockup */}
                 <div className="bg-telegram-header h-8 w-full" />
 

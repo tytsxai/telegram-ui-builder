@@ -47,7 +47,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   }, []);
 
   return (
-    <div className="h-screen w-full bg-background overflow-hidden">
+    <div className="h-screen w-full bg-transparent overflow-hidden">
       <ResizablePanelGroup direction="horizontal">
         {/* Left Panel */}
         <ResizablePanel
@@ -67,7 +67,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
         <ResizablePanel defaultSize={60}>
           <ResizablePanelGroup direction="vertical">
             {/* Center Canvas */}
-            <ResizablePanel defaultSize={75} className="bg-slate-50/50 dark:bg-slate-950/50 relative">
+            <ResizablePanel defaultSize={75} className="bg-transparent relative">
               <div className="h-full w-full overflow-y-auto flex items-center justify-center p-4 md:p-8">
                 {centerCanvas}
               </div>
