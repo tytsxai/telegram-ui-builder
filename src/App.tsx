@@ -69,7 +69,7 @@ const RepoBadge = () => {
   useEffect(() => {
     const handleMove = (e: PointerEvent) => {
       if (!dragRef.current) return;
-       isDraggingRef.current = true;
+      isDraggingRef.current = true;
       setPos((prev) =>
         clampPos({
           x: e.clientX - dragRef.current!.offsetX,
@@ -78,6 +78,7 @@ const RepoBadge = () => {
       );
     };
     const handleUp = () => {
+      isDraggingRef.current = false;
       dragRef.current = null;
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
