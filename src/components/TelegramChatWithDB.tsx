@@ -29,8 +29,16 @@ import { CenterCanvas } from "./workbench/CenterCanvas";
 import { BottomPanel } from "./workbench/BottomPanel";
 import type { Json } from "@/integrations/supabase/types";
 import { withRetry, logSupabaseError } from "@/lib/supabaseRetry";
-import { readPendingOps, savePendingOps, clearPendingOps } from "@/lib/pendingQueue";
+import {
+  enqueueSaveOperation,
+  enqueueUpdateOperation,
+  processPendingOps,
+  readPendingOps,
+} from "@/lib/pendingQueue";
 import { TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
+import { SupabaseDataAccess } from "@/lib/dataAccess";
+import { SyncStatus, makeRequestId } from "@/types/sync";
+import { publishSyncEvent } from "@/lib/syncTelemetry";
 
 const DEFAULT_MESSAGE = "Welcome to the Telegram UI Builder!\n\nEdit this message directly.\n\nFormatting:\n**bold text** for bold\n`code blocks` for code";
 const DEFAULT_KEYBOARD_TEMPLATE: KeyboardRow[] = [
@@ -178,6 +186,7 @@ const TelegramChatWithDB = () => {
   const updateEditableJSONRef = useRef<() => void>();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const dataAccess = useMemo(() => new SupabaseDataAccess(supabase, { userId: user?.id }), [user]);
 
   // 使用撤销/重做管理编辑器状态
   const {
@@ -223,6 +232,10 @@ const TelegramChatWithDB = () => {
   const [isImporting, setIsImporting] = useState(false);
   const [isClearingScreens, setIsClearingScreens] = useState(false);
   const [shareLoading, setShareLoading] = useState(false);
+  const [shareSyncStatus, setShareSyncStatus] = useState<SyncStatus>({ state: "idle" });
+  const [layoutSyncStatus, setLayoutSyncStatus] = useState<SyncStatus>({ state: "idle" });
+  const [pendingQueueSize, setPendingQueueSize] = useState(0);
+  const [retryingQueue, setRetryingQueue] = useState(false);
   const [jsonSyncError, setJsonSyncError] = useState<string | null>(null);
   const jsonAutoApplyTimeoutRef = useRef<number | null>(null);
   const convertToTelegramFormat = useCallback((): TelegramExportPayload => {
@@ -257,6 +270,23 @@ const TelegramChatWithDB = () => {
   const updateEditableJSON = useCallback(() => {
     setEditableJSON(JSON.stringify(convertToTelegramFormat(), null, 2));
   }, [convertToTelegramFormat]);
+
+  const logSyncEvent = useCallback(
+    (scope: "share" | "layout" | "queue", status: SyncStatus & { requestId?: string; message?: string }) => {
+      if (import.meta.env.DEV) {
+        console.info("[Sync]", {
+          scope,
+          state: status.state,
+          requestId: status.requestId,
+          message: status.message,
+          at: status.at || Date.now(),
+          pendingQueueSize,
+        });
+      }
+      publishSyncEvent({ scope, status });
+    },
+    [pendingQueueSize],
+  );
 
   useEffect(() => {
     updateEditableJSONRef.current = updateEditableJSON;
@@ -431,12 +461,11 @@ const TelegramChatWithDB = () => {
     if (!user) return;
     try {
       const payload: { user_id: string; pinned_ids: string[] } = { user_id: user.id, pinned_ids: ids };
-      // upsert
-      await withRetry(() => supabase.from("user_pins").upsert(payload, { onConflict: "user_id" }));
+      await dataAccess.upsertPins(payload);
     } catch (e) {
       logSupabaseError({ action: "upsert_pins", table: "user_pins", userId: user.id, error: e });
     }
-  }, [user]);
+  }, [user, dataAccess]);
 
   const isPinned = useCallback((id?: string) => !!id && pinnedIds.includes(id), [pinnedIds]);
 
@@ -623,55 +652,35 @@ const TelegramChatWithDB = () => {
       const pending = readPendingOps(user.id);
       if (pending.length === 0) return;
 
-      const stillPending: typeof pending = [];
-      for (const item of pending) {
-        try {
+      const beforeCount = pending.length;
+      const remaining = await processPendingOps({
+        userId: user.id,
+        execute: async (item) => {
           if (item.kind === "save") {
-            const insertPayload: TablesInsert<"screens"> = {
-              user_id: user.id,
-              name: item.payload.name,
-              message_content: item.payload.message_content,
-              keyboard: item.payload.keyboard as Json,
-              is_public: false,
-            };
-            const { error } = await withRetry(() =>
-              supabase.from("screens").insert([insertPayload]),
-            );
-            if (error) throw error;
-          } else if (item.kind === "update") {
-            const updatePayload: TablesUpdate<"screens"> = {
-              message_content: item.payload.message_content,
-              keyboard: item.payload.keyboard as Json,
-            };
-            const { error } = await withRetry(() =>
-              supabase
-                .from("screens")
-                .update(updatePayload)
-                .eq("id", item.payload.id)
-                .eq("user_id", user.id),
-            );
-            if (error) throw error;
+            await dataAccess.saveScreen(item.payload);
+          } else {
+            await dataAccess.updateScreen({ screenId: item.payload.id, update: item.payload.update });
           }
-        } catch (e) {
-          stillPending.push(item);
-        }
-      }
+        },
+        maxAttempts: 3,
+        backoffMs: 500,
+      });
 
-      if (stillPending.length === 0) {
-        clearPendingOps(user.id);
-        setPendingOpsNotice(false);
+      setPendingQueueSize(remaining.length);
+      setPendingOpsNotice(remaining.length > 0);
+      logSyncEvent("queue", { state: remaining.length === 0 ? "success" : "pending", message: `queue size ${remaining.length}` });
+      if (remaining.length === 0 && beforeCount > 0) {
         toast.success("待同步的保存请求已处理完毕");
         void loadScreens();
-      } else {
-        savePendingOps(stillPending, user.id);
-        setPendingOpsNotice(true);
+      } else if (remaining.length > 0) {
+        toast.warning(`仍有 ${remaining.length} 个请求未同步，稍后将继续重试`, { duration: 5000 });
       }
     };
 
     if (!isOffline && user) {
       void replay();
     }
-  }, [isOffline, user, loadScreens]);
+  }, [isOffline, user, loadScreens, dataAccess, logSyncEvent]);
 
   // 校验入口模版，若不存在则回退到置顶或首个模版
   useEffect(() => {
@@ -769,6 +778,8 @@ const TelegramChatWithDB = () => {
     if (!user) return;
 
     setIsLoading(true);
+    const currentQueueSize = readPendingOps(user.id).length;
+    setPendingQueueSize(currentQueueSize);
 
     // 验证数据
     try {
@@ -803,24 +814,16 @@ const TelegramChatWithDB = () => {
     }
 
     const name = newScreenName.trim() || `模版 ${screens.length + 1}`;
+    const insertPayload: TablesInsert<"screens"> = {
+      user_id: user.id,
+      name,
+      message_content: messageContent,
+      keyboard: keyboard as unknown as Json,
+      is_public: false,
+    };
 
     try {
-      const { data, error } = await withRetry(() =>
-        supabase
-          .from("screens")
-          .insert([{
-            user_id: user.id,
-            name,
-            message_content: messageContent,
-            keyboard: keyboard as unknown as Json,
-            is_public: false,
-          }])
-          .select()
-          .single()
-      );
-
-      if (error) throw error;
-      const savedScreenData = data as ScreenRow | null;
+      const savedScreenData = await dataAccess.saveScreen(insertPayload);
       const savedScreen = savedScreenData
         ? { ...savedScreenData, keyboard: ensureKeyboard(savedScreenData.keyboard) }
         : null;
@@ -833,8 +836,7 @@ const TelegramChatWithDB = () => {
       setHasUnsavedChanges(false);
       resetHistory({ messageContent, keyboard }); // 重置撤销历史
       clearLocalStorage(); // 清除自动保存
-      clearPendingOps(user.id);
-      setPendingOpsNotice(false);
+      setPendingOpsNotice(readPendingOps(user.id).length > 0);
 
       if (savedScreen) setCurrentScreenId(savedScreen.id);
 
@@ -864,13 +866,7 @@ const TelegramChatWithDB = () => {
       const message = error instanceof Error ? error.message : '未知错误';
       setLastError(message);
       toast.error("保存模版失败");
-      // 持久化待补偿请求
-      const pending = readPendingOps(user.id);
-      pending.push({
-        kind: "save",
-        payload: { name, message_content: messageContent, keyboard },
-      });
-      savePendingOps(pending, user.id);
+      enqueueSaveOperation(insertPayload, user.id);
       setPendingOpsNotice(true);
     } finally {
       setIsLoading(false);
@@ -881,6 +877,8 @@ const TelegramChatWithDB = () => {
     if (!currentScreenId || !user) return;
 
     setIsLoading(true);
+    const currentQueueSize = readPendingOps(user.id).length;
+    setPendingQueueSize(currentQueueSize);
 
     // 验证数据
     try {
@@ -934,18 +932,14 @@ const TelegramChatWithDB = () => {
     }
 
     try {
-      const { error } = await withRetry(() =>
-        supabase
-          .from("screens")
-          .update({
-            message_content: messageContent,
-            keyboard: keyboard as unknown as Json,
-          })
-          .eq("id", currentScreenId)
-          .eq("user_id", user.id)
-      );
+      const updatePayload: TablesUpdate<"screens"> = {
+        message_content: messageContent,
+        keyboard: keyboard as unknown as Json,
+        updated_at: new Date().toISOString(),
+        user_id: user.id,
+      };
 
-      if (error) throw error;
+      await dataAccess.updateScreen({ screenId: currentScreenId, update: updatePayload });
       toast.success("✅ 模版更新成功！");
       setLastSavedAt(Date.now());
       setLastError(null);
@@ -953,20 +947,20 @@ const TelegramChatWithDB = () => {
       setHasUnsavedChanges(false);
       resetHistory({ messageContent, keyboard }); // 重置撤销历史
       clearLocalStorage(); // 清除自动保存
-      clearPendingOps(user.id);
-      setPendingOpsNotice(false);
+      setPendingOpsNotice(readPendingOps(user.id).length > 0);
       await loadScreens();
     } catch (error) {
       console.error('[UpdateScreen] Error:', error);
       const message = error instanceof Error ? error.message : '未知错误';
       setLastError(message);
       toast.error("更新模版失败");
-      const pending = readPendingOps(user.id);
-      pending.push({
-        kind: "update",
-        payload: { id: currentScreenId, message_content: messageContent, keyboard },
-      });
-      savePendingOps(pending, user.id);
+      const updatePayload: TablesUpdate<"screens"> = {
+        message_content: messageContent,
+        keyboard: keyboard as unknown as Json,
+        updated_at: new Date().toISOString(),
+        user_id: user.id,
+      };
+      enqueueUpdateOperation({ id: currentScreenId, update: updatePayload }, user.id);
       setPendingOpsNotice(true);
     } finally {
       setIsLoading(false);
@@ -1306,6 +1300,12 @@ const TelegramChatWithDB = () => {
   }, [canUndo, canRedo, undo, redo, currentScreenId, isPreviewMode]);
 
   const buildShareUrl = useCallback((token: string) => `${window.location.origin}/share/${token}`, []);
+  const beginShareSync = (message: string) => {
+    const requestId = makeRequestId();
+    setShareSyncStatus({ state: "pending", requestId, message });
+    logSyncEvent("share", { state: "pending", requestId, message });
+    return requestId;
+  };
 
   const handleCopyOrShare = async () => {
     if (!currentScreenId || !user) {
@@ -1315,26 +1315,50 @@ const TelegramChatWithDB = () => {
     const currentScreen = screens.find(s => s.id === currentScreenId);
     if (!currentScreen) return;
     setShareLoading(true);
+    let requestId = "";
     try {
+      requestId = beginShareSync("生成/复制分享链接");
       let token = currentScreen.share_token;
       if (!token) {
         token = crypto.randomUUID();
-        const { error } = await supabase
-          .from("screens")
-          .update({
+        await dataAccess.updateScreen({
+          screenId: currentScreenId,
+          update: {
             is_public: true,
             share_token: token,
-          })
-          .eq("id", currentScreenId)
-          .eq("user_id", user.id);
-        if (error) throw error;
-      }
-      const shareUrl = buildShareUrl(token);
-      await navigator.clipboard.writeText(shareUrl);
+            user_id: user.id,
+            updated_at: new Date().toISOString(),
+          },
+        });
+      } else {
+          await dataAccess.updateScreen({
+            screenId: currentScreenId,
+            update: {
+              is_public: true,
+              share_token: token,
+              user_id: user.id,
+              updated_at: new Date().toISOString(),
+            },
+          });
+        }
+        const shareUrl = buildShareUrl(token);
+        await navigator.clipboard.writeText(shareUrl);
       toast.success(currentScreen.share_token ? "分享链接已复制到剪贴板！" : "已生成并复制新的分享链接！");
-      await loadScreens();
+      setShareSyncStatus({ state: "success", requestId, at: Date.now(), message: "分享链接已可用" });
+      logSyncEvent("share", { state: "success", requestId, at: Date.now(), message: "分享链接已可用" });
+      setScreens(prev => prev.map(s => s.id === currentScreenId ? { ...s, is_public: true, share_token: token! } : s));
     } catch (error) {
       toast.error("分享链接处理失败");
+      setShareSyncStatus({
+        state: "error",
+        requestId: requestId || makeRequestId(),
+        message: error instanceof Error ? error.message : "未知错误",
+      });
+      logSyncEvent("share", {
+        state: "error",
+        requestId: requestId || makeRequestId(),
+        message: error instanceof Error ? error.message : "未知错误",
+      });
     } finally {
       setShareLoading(false);
     }
@@ -1343,22 +1367,32 @@ const TelegramChatWithDB = () => {
   const handleRotateShareLink = async () => {
     if (!currentScreenId || !user) return;
     setShareLoading(true);
+    let requestId = "";
     try {
+      requestId = beginShareSync("刷新分享链接");
       const token = crypto.randomUUID();
-      const { error } = await supabase
-        .from("screens")
-        .update({
+      await dataAccess.updateScreen({
+        screenId: currentScreenId,
+        update: {
           is_public: true,
           share_token: token,
-        })
-        .eq("id", currentScreenId)
-        .eq("user_id", user.id);
-      if (error) throw error;
+          user_id: user.id,
+          updated_at: new Date().toISOString(),
+        },
+      });
       await navigator.clipboard.writeText(buildShareUrl(token));
       toast.success("已刷新分享链接并复制到剪贴板");
-      await loadScreens();
+      setShareSyncStatus({ state: "success", requestId, at: Date.now(), message: "已刷新分享链接" });
+      logSyncEvent("share", { state: "success", requestId, at: Date.now(), message: "已刷新分享链接" });
+      setScreens(prev => prev.map(s => s.id === currentScreenId ? { ...s, is_public: true, share_token: token } : s));
     } catch (error) {
       toast.error("刷新分享链接失败");
+      setShareSyncStatus({
+        state: "error",
+        requestId: requestId || makeRequestId(),
+        message: error instanceof Error ? error.message : "刷新失败",
+      });
+      logSyncEvent("share", { state: "error", requestId: requestId || makeRequestId(), message: "刷新失败" });
     } finally {
       setShareLoading(false);
     }
@@ -1367,20 +1401,30 @@ const TelegramChatWithDB = () => {
   const handleUnshareScreen = async () => {
     if (!currentScreenId || !user) return;
     setShareLoading(true);
+    let requestId = "";
     try {
-      const { error } = await supabase
-        .from("screens")
-        .update({
+      requestId = beginShareSync("取消公开");
+      await dataAccess.updateScreen({
+        screenId: currentScreenId,
+        update: {
           is_public: false,
           share_token: null,
-        })
-        .eq("id", currentScreenId)
-        .eq("user_id", user.id);
-      if (error) throw error;
+          user_id: user.id,
+          updated_at: new Date().toISOString(),
+        },
+      });
       toast.success("已取消公开");
-      await loadScreens();
+      setShareSyncStatus({ state: "success", requestId, at: Date.now(), message: "已取消公开" });
+      logSyncEvent("share", { state: "success", requestId, at: Date.now(), message: "已取消公开" });
+      setScreens(prev => prev.map(s => s.id === currentScreenId ? { ...s, is_public: false, share_token: null } : s));
     } catch (error) {
       toast.error("取消公开失败");
+      setShareSyncStatus({
+        state: "error",
+        requestId: requestId || makeRequestId(),
+        message: error instanceof Error ? error.message : "取消失败",
+      });
+      logSyncEvent("share", { state: "error", requestId: requestId || makeRequestId(), message: "取消公开失败" });
     } finally {
       setShareLoading(false);
     }
@@ -1411,6 +1455,8 @@ const TelegramChatWithDB = () => {
         name: screen.name,
         message_content: screen.message_content,
         keyboard: screen.keyboard,
+        is_public: Boolean(screen.is_public),
+        share_token: screen.share_token ?? null,
       })),
     };
 
@@ -1523,7 +1569,7 @@ const TelegramChatWithDB = () => {
         const oldIdToNewId: Record<string, string> = {};
 
         try {
-          const rowsToInsert = parsed.screens.map((screen, index) => ({
+          const rowsToInsert: TablesInsert<"screens">[] = parsed.screens.map((screen, index) => ({
             user_id: user.id,
             name: buildImportedName(screen.name, index),
             message_content: screen.message_content,
@@ -1536,15 +1582,7 @@ const TelegramChatWithDB = () => {
             return;
           }
 
-          const { data, error } = await withRetry(() =>
-            supabase
-              .from("screens")
-              .insert(rowsToInsert)
-              .select()
-          );
-
-          if (error) throw error;
-          const rows = (data ?? []) as ScreenRow[];
+          const rows = await dataAccess.insertScreens(rowsToInsert);
           rows.forEach((row, index) => {
             const savedScreen: Screen = {
               ...row,
@@ -1573,10 +1611,10 @@ const TelegramChatWithDB = () => {
               }));
 
               if (needsUpdate) {
-                  return supabase
-                    .from("screens")
-                    .update({ keyboard: updatedKeyboard as unknown as Json })
-                    .eq("id", screen.id);
+                  return dataAccess.updateScreen({
+                    screenId: screen.id,
+                    update: { keyboard: updatedKeyboard as unknown as Json, user_id: user.id },
+                  });
               }
               return null;
             })
@@ -1587,7 +1625,7 @@ const TelegramChatWithDB = () => {
           }
         } catch (flowError) {
           if (insertedIds.length > 0) {
-            await supabase.from("screens").delete().in("id", insertedIds);
+            await dataAccess.deleteScreens({ ids: insertedIds, userId: user.id });
           }
           throw flowError;
         }
@@ -1617,7 +1655,9 @@ const TelegramChatWithDB = () => {
 
       const inlineKeyboard = parsed.reply_markup?.inline_keyboard;
       if (inlineKeyboard && isTelegramKeyboard(inlineKeyboard)) {
-        setKeyboard(buildKeyboardFromTelegram(inlineKeyboard));
+        const built = buildKeyboardFromTelegram(inlineKeyboard);
+        validateKeyboard(built);
+        setKeyboard(built);
       }
 
       setImportDialogOpen(false);
@@ -2047,6 +2087,9 @@ const TelegramChatWithDB = () => {
             currentScreenName={screens.find(s => s.id === currentScreenId)?.name}
             hasUnsavedChanges={hasUnsavedChanges}
             isOffline={isOffline}
+            shareSyncStatus={shareSyncStatus}
+            layoutSyncStatus={layoutSyncStatus}
+            pendingQueueSize={pendingQueueSize}
           />
         }
         bottomPanel={
@@ -2060,6 +2103,50 @@ const TelegramChatWithDB = () => {
             circularReferences={circularReferences}
             allowCircular={allowCircular}
             pendingOpsNotice={pendingOpsNotice}
+            pendingQueueSize={pendingQueueSize}
+            retryingQueue={retryingQueue}
+            isOffline={isOffline}
+            onRetryPendingOps={() => {
+              if (!user) return;
+              if (isOffline) {
+                toast.warning("当前离线，无法重试同步");
+                return;
+              }
+              setPendingOpsNotice(true);
+              const pendingCount = readPendingOps(user.id).length;
+              setPendingQueueSize(pendingCount);
+              setRetryingQueue(true);
+              void (async () => {
+                try {
+                  const remaining = await processPendingOps({
+                    userId: user.id,
+                    execute: async (item) => {
+                      if (item.kind === "save") {
+                        await dataAccess.saveScreen(item.payload);
+                      } else {
+                        await dataAccess.updateScreen({ screenId: item.payload.id, update: item.payload.update });
+                      }
+                    },
+                    maxAttempts: 3,
+                    backoffMs: 500,
+                  });
+                  setPendingQueueSize(remaining.length);
+                  setPendingOpsNotice(remaining.length > 0);
+                  logSyncEvent("queue", { state: remaining.length === 0 ? "success" : "pending", message: `queue size ${remaining.length}` });
+                  if (remaining.length === 0) {
+                    toast.success("待同步请求已重试完成");
+                    void loadScreens();
+                  } else {
+                    toast.warning(`仍有 ${remaining.length} 个请求未同步`);
+                  }
+                } catch (e) {
+                  toast.error("重试同步失败");
+                  logSyncEvent("queue", { state: "error", message: e instanceof Error ? e.message : "retry failed" });
+                } finally {
+                  setRetryingQueue(false);
+                }
+              })();
+            }}
           />
         }
       />
@@ -2174,6 +2261,7 @@ const TelegramChatWithDB = () => {
         open={flowDiagramOpen}
         onOpenChange={setFlowDiagramOpen}
         userId={user?.id || undefined}
+        onLayoutSync={setLayoutSyncStatus}
         onScreenClick={(screenId) => {
           loadScreen(screenId);
           toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);

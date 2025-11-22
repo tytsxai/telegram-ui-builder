@@ -11,10 +11,12 @@ export interface SupabaseErrorLog {
   table?: string;
   action: string;
   userId?: string;
+  requestId?: string;
   error: PostgrestError | null | unknown;
 }
 
 const wait = (ms: number) => new Promise((res) => setTimeout(res, ms));
+const fallbackRequestId = () => `req_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
 export const withRetry = async <T>(op: Op<T>, opts: RetryOptions = {}): Promise<T> => {
   const attempts = opts.attempts ?? 3;
@@ -35,8 +37,10 @@ export const withRetry = async <T>(op: Op<T>, opts: RetryOptions = {}): Promise<
 
 export const logSupabaseError = (info: SupabaseErrorLog) => {
   if (!info.error) return;
+  const requestId = info.requestId || fallbackRequestId();
   const err = info.error as Partial<PostgrestError>;
   console.error("[Supabase]", {
+    requestId,
     action: info.action,
     table: info.table,
     userId: info.userId,

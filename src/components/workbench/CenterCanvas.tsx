@@ -4,6 +4,7 @@ import { Eye, Edit, Undo2, Redo2, Edit2 } from "lucide-react";
 import MessageBubble, { MessageBubbleHandle } from "../MessageBubble";
 import InlineKeyboard from "../InlineKeyboard";
 import { Screen, KeyboardRow, KeyboardButton } from "@/types/telegram";
+import { SyncStatus } from "@/types/sync";
 
 interface CenterCanvasProps {
     messageContent: string;
@@ -37,6 +38,9 @@ interface CenterCanvasProps {
     // Status
     hasUnsavedChanges?: boolean;
     isOffline?: boolean;
+    shareSyncStatus?: SyncStatus;
+    layoutSyncStatus?: SyncStatus;
+    pendingQueueSize?: number;
 }
 
 export const CenterCanvas = React.memo<CenterCanvasProps>(({
@@ -60,7 +64,30 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
     currentScreenName,
     hasUnsavedChanges,
     isOffline,
+    shareSyncStatus,
+    layoutSyncStatus,
+    pendingQueueSize,
 }) => {
+    const renderStatusBadge = (label: string, status?: SyncStatus) => {
+        if (!status || status.state === "idle") return null;
+        const color =
+            status.state === "success" ? "bg-emerald-500/20 text-emerald-700 border-emerald-500/50" :
+            status.state === "error" ? "bg-destructive/10 text-destructive border-destructive/50" :
+            "bg-amber-500/10 text-amber-700 border-amber-500/50";
+        const text =
+            status.state === "success" ? `${label}已同步` :
+            status.state === "error" ? `${label}失败` :
+            `${label}中`;
+        return (
+            <span
+                className={`px-2 py-0.5 text-[10px] rounded-full border inline-flex items-center gap-1 ${color}`}
+                title={status.message || status.requestId}
+            >
+                {text}
+            </span>
+        );
+    };
+
     return (
         <div className="flex flex-col items-center w-full max-w-md mx-auto h-full">
             {/* Canvas Toolbar */}
@@ -86,6 +113,16 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
                         )}
                         {isOffline && (
                             <span className="w-2 h-2 rounded-full bg-slate-500" title="离线" />
+                        )}
+                        {renderStatusBadge("分享", shareSyncStatus)}
+                        {renderStatusBadge("布局", layoutSyncStatus)}
+                        {pendingQueueSize && pendingQueueSize > 0 && (
+                            <span
+                                className="px-2 py-0.5 text-[10px] rounded-full border bg-amber-500/10 text-amber-700 border-amber-500/50"
+                                title="未同步的请求数"
+                            >
+                                待同步 {pendingQueueSize}
+                            </span>
                         )}
                     </div>
                 </div>

@@ -20,10 +20,11 @@ import { Slider } from '@/components/ui/slider';
 import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown, Maximize2, Minimize2, Network, MoreVertical, Edit, Trash2, PlayCircle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { findAllCircularReferences, generateRelationshipGraph } from '@/lib/referenceChecker';
-import { supabase } from '@/integrations/supabase/client';
 import dagre from '@dagrejs/dagre';
+import { SupabaseDataAccess } from '@/lib/dataAccess';
 
 import { Screen, KeyboardRow, KeyboardButton } from '@/types/telegram';
+import { SyncStatus, makeRequestId } from '@/types/sync';
 
 interface TemplateFlowDiagramProps {
   screens: Screen[];
@@ -32,6 +33,7 @@ interface TemplateFlowDiagramProps {
   onOpenChange: (open: boolean) => void;
   onScreenClick?: (screenId: string) => void;
   userId?: string;
+  onLayoutSync?: (status: SyncStatus) => void;
 }
 
 type NodePositionPayload = { id: string; x: number; y: number };
@@ -57,7 +59,13 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   onOpenChange,
   onScreenClick,
   userId,
+  onLayoutSync,
 }) => {
+  const dataAccess = useMemo(() => new SupabaseDataAccess(undefined, { userId }), [userId]);
+  const layoutSyncRef = useRef(onLayoutSync);
+  useEffect(() => {
+    layoutSyncRef.current = onLayoutSync;
+  }, [onLayoutSync]);
   // 控件：布局方向与边标签
   const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
   const [showButtonLabels, setShowButtonLabels] = useState<boolean>(false);
@@ -539,23 +547,34 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     lastSavedSignatureRef.current = signature;
     setLayoutSavedAt(Date.now());
 
+    const requestId = makeRequestId();
     if (userId) {
       try {
         const ids = positions.map((p) => p.id);
         if (ids.length === 0) {
-          await supabase.from("screen_layouts").delete().eq("user_id", userId);
+          layoutSyncRef.current?.({ state: "pending", requestId, message: "清除布局中" });
+          await dataAccess.deleteLayouts({ userId });
+          layoutSyncRef.current?.({ state: "success", requestId, at: Date.now(), message: "已清除云端布局" });
         } else {
-          await supabase.from("screen_layouts").delete().eq("user_id", userId).in("screen_id", ids);
+          layoutSyncRef.current?.({ state: "pending", requestId, message: "保存布局中" });
+          await dataAccess.deleteLayouts({ userId, ids });
           const payload = positions.map((p) => ({ user_id: userId, screen_id: p.id, x: p.x, y: p.y }));
-          await supabase.from("screen_layouts").upsert(payload, { onConflict: "user_id,screen_id" });
+          await dataAccess.upsertLayouts(payload);
+          layoutSyncRef.current?.({ state: "success", requestId, at: Date.now(), message: "布局已保存到云端" });
         }
-      } catch (e) { /* ignore cloud errors */ }
+      } catch (e) {
+        layoutSyncRef.current?.({
+          state: "error",
+          requestId,
+          message: e instanceof Error ? e.message : "布局保存失败",
+        });
+      }
     }
 
     if (!options?.silent) {
       setLayoutSaving(false);
     }
-  }, [POS_KEY, userId]);
+  }, [POS_KEY, userId, dataAccess]);
 
   // 合并自动布局与用户布局：如已存在用户/保存的布局，保留当前坐标，仅为新增节点填充位置
   useEffect(() => {
@@ -646,15 +665,11 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     try {
       const ids = screens.map(s => s.id);
       if (ids.length === 0) return false;
-      const { data, error } = await supabase
-        .from("screen_layouts")
-        .select("screen_id,x,y")
-        .eq("user_id", userId)
-        .in("screen_id", ids);
-      if (error || !data) return false;
+      const data = await dataAccess.fetchLayouts({ userId, ids });
+      if (!data) return false;
       const m = new Map<string, { x: number; y: number }>();
       const payload: NodePositionPayload[] = [];
-      (data as Array<{ screen_id: string; x: number; y: number }>).forEach(row => {
+      data.forEach(row => {
         m.set(row.screen_id, { x: row.x, y: row.y });
         payload.push({ id: row.screen_id, x: row.x, y: row.y });
       });
@@ -663,9 +678,10 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       lastSavedSignatureRef.current = serializePositions(payload);
       setLayoutSavedAt(Date.now());
       setUseSavedPositions(true);
+      layoutSyncRef.current?.({ state: "success", at: Date.now(), message: "已加载云端布局" });
       return true;
-    } catch (e) { return false; }
-  }, [userId, screens]);
+    } catch (e) { layoutSyncRef.current?.({ state: "error", message: "加载云端布局失败" }); return false; }
+  }, [userId, screens, dataAccess]);
 
   const clearLayout = useCallback(async () => {
     try { localStorage.removeItem(POS_KEY); } catch (e) { void e; }
@@ -675,12 +691,13 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     setUseSavedPositions(false);
     if (userId) {
       try {
-        await supabase.from("screen_layouts").delete().eq("user_id", userId);
+        await dataAccess.deleteLayouts({ userId });
+        layoutSyncRef.current?.({ state: "success", at: Date.now(), message: "已清空云端布局" });
       } catch (e) { /* ignore cloud errors */ }
     }
     setNodes(initialNodes);
     setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50);
-  }, [POS_KEY, initialNodes, rfInstance, setNodes, userId]);
+  }, [POS_KEY, initialNodes, rfInstance, setNodes, userId, dataAccess]);
 
   // 自动保存：用户调整或智能整理后延迟写入，避免重复点击
   useEffect(() => {

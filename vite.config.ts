@@ -27,4 +27,14 @@ export default defineConfig(() => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  test: {
+    globals: true,
+    environment: "jsdom",
+    include: [
+      "src/**/*.{test,spec}.{ts,tsx}",
+      "src/**/__tests__/**/*.{ts,tsx}",
+      "tests/unit/**/*.{test,spec}.{ts,tsx}"
+    ],
+    exclude: ["tests/e2e/**"],
+  },
 }));

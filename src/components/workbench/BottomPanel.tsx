@@ -16,6 +16,10 @@ interface BottomPanelProps {
     circularReferences: Array<{ path: string[]; screenNames: string[] }>;
     allowCircular: boolean;
     pendingOpsNotice?: boolean;
+    pendingQueueSize?: number;
+    onRetryPendingOps?: () => void;
+    retryingQueue?: boolean;
+    isOffline?: boolean;
 }
 
 export const BottomPanel: React.FC<BottomPanelProps> = ({
@@ -28,6 +32,10 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
     circularReferences,
     allowCircular,
     pendingOpsNotice,
+    pendingQueueSize,
+    onRetryPendingOps,
+    retryingQueue,
+    isOffline,
 }) => {
     return (
         <div className="p-4 space-y-4">
@@ -37,7 +45,18 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
                     <Alert className="border-amber-500/50 bg-amber-500/10 py-2">
                         <AlertCircle className="h-4 w-4 text-amber-600" />
                         <AlertDescription className="text-xs text-foreground">
-                            有未同步的保存请求，请联网后重新保存。
+                            有未同步的保存请求（{pendingQueueSize ?? "?"}），请联网后重试。
+                            <div className="mt-2">
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs"
+                                    disabled={retryingQueue || isOffline}
+                                    onClick={onRetryPendingOps}
+                                >
+                                    {retryingQueue ? "重试中..." : isOffline ? "离线中" : "立即重试同步"}
+                                </Button>
+                            </div>
                         </AlertDescription>
                     </Alert>
                 )}

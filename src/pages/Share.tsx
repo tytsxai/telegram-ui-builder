@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import MessageBubble from "@/components/MessageBubble";
 import InlineKeyboard from "@/components/InlineKeyboard";
 import { Button } from "@/components/ui/button";
@@ -8,6 +7,9 @@ import { toast } from "sonner";
 import type { KeyboardRow, Screen } from "@/types/telegram";
 import type { Json } from "@/integrations/supabase/types";
 import type { User } from "@supabase/supabase-js";
+import { supabase } from "@/integrations/supabase/client";
+import { SupabaseDataAccess } from "@/lib/dataAccess";
+import { useMemo } from "react";
 
 type ScreenRow = Omit<Screen, "keyboard"> & { keyboard: unknown };
 
@@ -30,6 +32,7 @@ const Share = () => {
   const [screen, setScreen] = useState<Screen | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  const dataAccess = useMemo(() => new SupabaseDataAccess(), []);
 
   const formatDateTime = (input?: string | null) => {
     if (!input) return "时间未知";
@@ -53,14 +56,7 @@ const Share = () => {
   useEffect(() => {
     const fetchScreen = async () => {
       try {
-        const { data, error } = await supabase
-          .from("screens")
-          .select("id,name,message_content,keyboard,share_token,is_public,updated_at,created_at,user_id")
-          .eq("share_token", token)
-          .eq("is_public", true)
-          .single();
-
-        if (error) throw error;
+        const data = await dataAccess.getPublicScreenByToken(token);
         if (data) {
           const row = data as ScreenRow;
           setScreen({
@@ -81,7 +77,7 @@ const Share = () => {
     if (token) {
       fetchScreen();
     }
-  }, [token, navigate]);
+  }, [token, navigate, dataAccess]);
 
   const handleCopy = async () => {
     if (!user) {
@@ -93,18 +89,21 @@ const Share = () => {
     if (!screen) return;
 
     try {
-      const { error } = await supabase
-        .from("screens")
-        .insert([{
-          user_id: user.id,
-          name: `${screen.name} (副本)`,
+      await dataAccess.copyScreenForUser(
+        {
+          id: screen.id,
+          name: screen.name,
           message_content: screen.message_content,
           keyboard: screen.keyboard as unknown as Json,
-          is_public: false,
-          share_token: null,
-        }]);
-
-      if (error) throw error;
+          is_public: screen.is_public,
+          share_token: screen.share_token,
+          created_at: null,
+          updated_at: new Date().toISOString(),
+          user_id: screen.user_id,
+        },
+        user.id,
+        { nameSuffix: " (副本)" }
+      );
       toast.success("模版已复制到您的账户！");
       navigate("/");
     } catch (error) {

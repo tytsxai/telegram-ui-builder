@@ -30,6 +30,8 @@ The repo includes a `.env` file with a default Supabase project for previews. To
 - `npm run build` — create a production build in `dist/`
 - `npm run preview` — preview the production build locally
 - `npm run lint` — run ESLint across the codebase
+- `npm run test` — run unit tests (Vitest + jsdom)
+- `npm run test:e2e` — run Playwright E2E suite (requires dev server env)
 
 ## Editing options
 - **Local IDE**: Clone the repo, install dependencies, and develop with your preferred tools.
@@ -38,3 +40,9 @@ The repo includes a `.env` file with a default Supabase project for previews. To
 
 ## Deployment
 Run `npm run build`, then deploy the generated `dist/` folder to any static host (e.g., Vercel, Netlify, Cloudflare Pages) or serve it with your preferred Node/edge runtime. Ensure the environment variables for Supabase are configured in your hosting platform.
+
+## Quality gates & ops
+- CI gates: lint → unit tests → build (see `.github/workflows/ci.yml`).
+- Runbook: `docs/ops-runbook.md` covers Supabase backoff, offline queue, rate-limit guidance, and recovery steps.
+- Sync badges in the UI surface share/layout request status with correlation IDs for debugging.‬‬
+- Telemetry: hook `setSyncTelemetryPublisher` (see `docs/telemetry.md`) to forward sync events (share/layout/queue) with requestIds to your logging/analytics sink.
