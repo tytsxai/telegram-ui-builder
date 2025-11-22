@@ -1,13 +1,24 @@
 import { z } from 'zod';
 
+export const BUTTON_TEXT_MAX = 30;
+export const CALLBACK_DATA_MAX_BYTES = 64;
+export const MAX_BUTTONS_PER_ROW = 8;
+export const MAX_KEYBOARD_ROWS = 100;
+
 /**
  * 按钮数据验证 Schema
  */
 export const ButtonSchema = z.object({
   id: z.string(),
-  text: z.string().min(1, "按钮文本不能为空").max(30, "按钮文本最多30个字符"),
+  text: z.string().min(1, "按钮文本不能为空").max(BUTTON_TEXT_MAX, "按钮文本最多30个字符"),
   url: z.string().url("无效的URL格式").optional().or(z.literal('')),
-  callback_data: z.string().max(64, "callback_data最多64字节").optional(),
+  callback_data: z.string().optional().refine(
+    (val) => {
+      if (!val) return true;
+      return new TextEncoder().encode(val).length <= CALLBACK_DATA_MAX_BYTES;
+    },
+    { message: "callback_data最多64字节" }
+  ),
   linked_screen_id: z.string().optional(),
 });
 
@@ -16,7 +27,7 @@ export const ButtonSchema = z.object({
  */
 export const KeyboardRowSchema = z.object({
   id: z.string(),
-  buttons: z.array(ButtonSchema).min(1, "每行至少要有一个按钮").max(8, "每行最多8个按钮"),
+  buttons: z.array(ButtonSchema).min(1, "每行至少要有一个按钮").max(MAX_BUTTONS_PER_ROW, "每行最多8个按钮"),
 });
 
 /**

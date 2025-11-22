@@ -26,7 +26,7 @@ describe("validation", () => {
     const badKeyboard = [
       {
         id: "row-1",
-        buttons: [{ id: "btn-1", text: "Bad", callback_data: "a".repeat(65) }],
+        buttons: [{ id: "btn-1", text: "Bad", callback_data: "あ".repeat(33) }], // multibyte to exceed 64 bytes
       },
     ];
     expect(() => validateKeyboard(badKeyboard)).toThrow(/64字节/);
