@@ -681,10 +681,22 @@ const TelegramChatWithDB = () => {
               linked_screen_id: btn.linked_screen_id,
             })),
           }));
-          validateKeyboard(mapped);
+          try {
+            validateKeyboard(mapped);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "键盘格式不合法";
+            setJsonSyncError(`导入失败：${message}`);
+            return;
+          }
           setKeyboard(mapped);
         } else {
-          validateKeyboard(nextKeyboard);
+          try {
+            validateKeyboard(nextKeyboard);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "键盘格式不合法";
+            setJsonSyncError(`导入失败：${message}`);
+            return;
+          }
           setKeyboard(() => JSON.parse(JSON.stringify(nextKeyboard)) as KeyboardRow[]);
         }
       }
