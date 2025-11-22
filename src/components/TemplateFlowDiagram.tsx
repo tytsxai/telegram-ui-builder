@@ -11,6 +11,7 @@ import ReactFlow, {
   Position,
   ReactFlowInstance,
   NodeChange,
+  Connection,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -37,6 +38,7 @@ interface TemplateFlowDiagramProps {
   onLayoutSync?: (status: SyncStatus) => void;
   onSetEntry?: (screenId: string) => void;
   onDeleteScreen?: (screenId: string) => void;
+  onCreateLink?: (sourceId: string, targetId: string) => void;
 }
 
 type NodePositionPayload = { id: string; x: number; y: number };
@@ -65,6 +67,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   onLayoutSync,
   onSetEntry,
   onDeleteScreen,
+  onCreateLink,
 }) => {
   const dataAccess = useMemo(() => new SupabaseDataAccess(supabase, { userId }), [userId]);
   const layoutSyncRef = useRef(onLayoutSync);
@@ -939,12 +942,17 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
             onNodeMouseEnter={handleNodeMouseEnter}
             onNodeMouseLeave={handleNodeMouseLeave}
             onNodeContextMenu={handleNodeContextMenu}
-            onEdgeMouseEnter={(e, edge) => showEdgeTooltip(e as unknown as React.MouseEvent, edge.id)}
-            onEdgeMouseMove={(e) => moveEdgeTooltip(e as unknown as React.MouseEvent)}
-            onEdgeMouseLeave={hideEdgeTooltip}
-            onInit={(inst) => setRfInstance(inst)}
-            fitView
-            fitViewOptions={{ padding: 0.4, maxZoom: 1 }}
+          onEdgeMouseEnter={(e, edge) => showEdgeTooltip(e as unknown as React.MouseEvent, edge.id)}
+          onEdgeMouseMove={(e) => moveEdgeTooltip(e as unknown as React.MouseEvent)}
+          onEdgeMouseLeave={hideEdgeTooltip}
+          onConnect={(connection: Connection) => {
+            if (onCreateLink && connection.source && connection.target) {
+              onCreateLink(connection.source, connection.target);
+            }
+          }}
+          onInit={(inst) => setRfInstance(inst)}
+          fitView
+          fitViewOptions={{ padding: 0.4, maxZoom: 1 }}
             minZoom={0.1}
             maxZoom={2}
             attributionPosition="bottom-left"

@@ -26,6 +26,20 @@ const ensureKeyboard = (value: unknown): KeyboardRow[] => {
   return [];
 };
 
+const parseMessage = (raw: string) => {
+  try {
+    const parsed = JSON.parse(raw) as any;
+    if (parsed && typeof parsed === "object" && "text" in parsed) {
+      const type = (parsed.type as "text" | "photo" | "video") || (parsed.photo ? "photo" : parsed.video ? "video" : "text");
+      const mediaUrl = parsed.photo || parsed.video || "";
+      return { text: parsed.text ?? parsed.caption ?? raw, mediaUrl, type };
+    }
+  } catch {
+    // fallback
+  }
+  return { text: raw, mediaUrl: "", type: "text" as const };
+};
+
 const Share = () => {
   const { token } = useParams();
   const navigate = useNavigate();
@@ -59,9 +73,13 @@ const Share = () => {
         const data = await dataAccess.getPublicScreenByToken(token);
         if (data) {
           const row = data as ScreenRow;
+          const parsed = parseMessage(row.message_content);
           setScreen({
             ...row,
             keyboard: ensureKeyboard(row.keyboard),
+            message_type: parsed.type,
+            media_url: parsed.mediaUrl,
+            message_content: parsed.text,
           });
         } else {
           setScreen(null);
@@ -145,7 +163,16 @@ const Share = () => {
             </div>
           </div>
 
-          <div className="p-4 min-h-[500px]">
+          <div className="p-4 min-h-[500px] space-y-3">
+            {screen.message_type !== "text" && screen.media_url && (
+              <div className="w-full overflow-hidden rounded-xl border border-white/10">
+                {screen.message_type === "photo" ? (
+                  <img src={screen.media_url} alt="media" className="w-full object-cover" />
+                ) : (
+                  <video src={screen.media_url} controls className="w-full object-cover" />
+                )}
+              </div>
+            )}
             <div className="inline-block max-w-[85%]">
               <MessageBubble content={screen.message_content} readOnly />
               <InlineKeyboard keyboard={screen.keyboard} readOnly />

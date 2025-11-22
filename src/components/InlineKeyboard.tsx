@@ -1,4 +1,20 @@
 import React, { useEffect, useState } from "react";
+import {
+  DndContext,
+  useSensor,
+  useSensors,
+  PointerSensor,
+  closestCenter,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+  verticalListSortingStrategy,
+  horizontalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { X, Settings } from "lucide-react";
 import type { KeyboardRow, KeyboardButton, Screen } from "@/types/telegram";
 import ButtonEditDialog from "./ButtonEditDialog";
@@ -12,6 +28,7 @@ interface InlineKeyboardProps {
   isPreviewMode?: boolean;
   readOnly?: boolean;
   screens?: Screen[];
+  onReorder?: (rows: KeyboardRow[]) => void;
 }
 
 const InlineKeyboard = React.memo(({
@@ -23,6 +40,7 @@ const InlineKeyboard = React.memo(({
   isPreviewMode = false,
   readOnly = false,
   screens = [],
+  onReorder,
 }: InlineKeyboardProps) => {
   const [editingButton, setEditingButton] = useState<string | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -78,6 +96,170 @@ const InlineKeyboard = React.memo(({
     }
   };
 
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || !onReorder) return;
+    const [activeType, activeId] = String(active.id).split(":");
+    const [overType, overId] = String(over.id).split(":");
+
+    // Row reorder
+    if (activeType === "row" && overType === "row" && activeId !== overId) {
+      const rowOrder = keyboard.map((r) => r.id);
+      const oldIndex = rowOrder.indexOf(activeId);
+      const newIndex = rowOrder.indexOf(overId);
+      if (oldIndex === -1 || newIndex === -1) return;
+      const newRows = arrayMove(keyboard, oldIndex, newIndex);
+      onReorder(newRows);
+      return;
+    }
+
+    // Button reorder within a row
+    if (activeType === "btn" && overType === "btn") {
+      const [activeRowId, activeBtnId] = activeId.split("_");
+      const [overRowId, overBtnId] = overId.split("_");
+      if (activeRowId !== overRowId) return; // cross-row reorder skip for now
+      const targetRow = keyboard.find((r) => r.id === activeRowId);
+      if (!targetRow) return;
+      const order = targetRow.buttons.map((b) => b.id);
+      const oldIndex = order.indexOf(activeBtnId);
+      const newIndex = order.indexOf(overBtnId);
+      if (oldIndex === -1 || newIndex === -1) return;
+      const newButtons = arrayMove(targetRow.buttons, oldIndex, newIndex);
+      const newRows = keyboard.map((row) =>
+        row.id === activeRowId ? { ...row, buttons: newButtons } : row
+      );
+      onReorder(newRows);
+    }
+  };
+
+  const SortableRow = ({ row }: { row: KeyboardRow }) => {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+      id: `row:${row.id}`,
+    });
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+    };
+    return (
+      <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="flex flex-col gap-2">
+        <SortableContext items={row.buttons.map((b) => `btn:${row.id}_${b.id}`)} strategy={horizontalListSortingStrategy}>
+          <div className="flex gap-[2px]">
+            {row.buttons.map((button) => (
+              <SortableButton key={button.id} row={row} button={button} />
+            ))}
+          </div>
+        </SortableContext>
+      </div>
+    );
+  };
+
+  const SortableButton = ({ row, button }: { row: KeyboardRow; button: KeyboardButton }) => {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+      id: `btn:${row.id}_${button.id}`,
+    });
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+    };
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        className="relative flex-1 group hover:z-50"
+        onClick={() => {
+          if (isPreviewMode && onButtonClick) {
+            onButtonClick(button);
+          } else if (!readOnly && !isPreviewMode) {
+            handleTextEditClick(button.id);
+          }
+        }}
+        onDoubleClick={() => {
+          if (!readOnly && !isPreviewMode) {
+            handleTextEditClick(button.id);
+          }
+        }}
+      >
+        <button
+          {...attributes}
+          {...listeners}
+          className="w-full bg-telegram-button hover:bg-telegram-button/80 text-telegram-buttonText border-none rounded-md py-2 px-3 text-[15px] font-medium transition-colors relative overflow-hidden"
+          title={readOnly ? "仅供预览" : isPreviewMode ? "点击执行操作" : "双击编辑文本"}
+        >
+          {!readOnly && !isPreviewMode && editingButton === button.id ? (
+            <input
+              type="text"
+              value={button.text}
+              onChange={(e) => handleTextChange(row.id, button.id, e.target.value)}
+              onBlur={() => setEditingButton(null)}
+              onPaste={handlePaste}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setEditingButton(null);
+                }
+                if (e.key === 'Escape') {
+                  setEditingButton(null);
+                }
+              }}
+              autoFocus
+              className="w-full bg-transparent outline-none text-center"
+              maxLength={30}
+            />
+          ) : (
+            <span className="truncate block">{button.text}</span>
+          )}
+        </button>
+        {!readOnly && (
+          <>
+            {button.linked_screen_id && (
+              <div
+                className="absolute -top-1 -left-1 w-3 h-3 bg-green-500 rounded-full opacity-90 pointer-events-none transition-opacity group-hover:opacity-90"
+                title="已配置跳转模版"
+              />
+            )}
+            {button.url && (
+              <div
+                className="absolute -top-1 -left-1 w-3 h-3 bg-blue-500 rounded-full opacity-90 pointer-events-none transition-opacity group-hover:opacity-90"
+                title="已配置URL链接"
+              />
+            )}
+            {!button.url && !button.linked_screen_id && (
+              <div
+                className="absolute -top-1 -left-1 w-3 h-3 bg-yellow-500 rounded-full opacity-90 pointer-events-none transition-opacity group-hover:opacity-90"
+                title="未配置跳转目标"
+              />
+            )}
+
+            <div className="absolute -top-3 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-50">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleEditClick(row, button);
+                }}
+                className="w-6 h-6 bg-white text-black rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform border border-gray-200"
+                aria-label="Edit button"
+                title="配置按钮跳转"
+              >
+                <Settings className="w-3 h-3" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteButton?.(row.id, button.id);
+                }}
+                className="w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform border border-red-600"
+                aria-label="Delete button"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
       {selectedButton && (
@@ -90,105 +272,13 @@ const InlineKeyboard = React.memo(({
         />
       )}
       <div className="space-y-4 mt-4">
-        {keyboard.map((row) => (
-          <div key={row.id} className="flex gap-[2px]">
-            {row.buttons.map((button) => (
-              <div
-                key={button.id}
-                className="relative flex-1 group hover:z-50"
-                style={{ maxWidth: `${100 / row.buttons.length}%` }}
-              >
-                <button
-                  onClick={() => {
-                    if (isPreviewMode && onButtonClick) {
-                      onButtonClick(button);
-                    } else if (!readOnly && !isPreviewMode) {
-                      handleTextEditClick(button.id);
-                    }
-                  }}
-                  onDoubleClick={() => {
-                    // 双击才能编辑文本，防止误触
-                    if (!readOnly && !isPreviewMode) {
-                      handleTextEditClick(button.id);
-                    }
-                  }}
-                  className="w-full bg-telegram-button hover:bg-telegram-button/80 text-telegram-buttonText border-none rounded-md py-2 px-3 text-[15px] font-medium transition-colors relative overflow-hidden"
-                  title={readOnly ? "仅供预览" : isPreviewMode ? "点击执行操作" : "双击编辑文本"}
-                >
-                  {!readOnly && !isPreviewMode && editingButton === button.id ? (
-                    <input
-                      type="text"
-                      value={button.text}
-                      onChange={(e) => handleTextChange(row.id, button.id, e.target.value)}
-                      onBlur={() => setEditingButton(null)}
-                      onPaste={handlePaste}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          setEditingButton(null);
-                        }
-                        if (e.key === 'Escape') {
-                          setEditingButton(null);
-                        }
-                      }}
-                      autoFocus
-                      className="w-full bg-transparent outline-none text-center"
-                      maxLength={30}
-                    />
-                  ) : (
-                    <span className="truncate block">{button.text}</span>
-                  )}
-                </button>
-                {!readOnly && (
-                  <>
-                    {/* 状态标记 */}
-                    {button.linked_screen_id && (
-                      <div
-                        className="absolute -top-1 -left-1 w-3 h-3 bg-green-500 rounded-full opacity-90 pointer-events-none transition-opacity group-hover:opacity-90"
-                        title="已配置跳转模版"
-                      />
-                    )}
-                    {button.url && (
-                      <div
-                        className="absolute -top-1 -left-1 w-3 h-3 bg-blue-500 rounded-full opacity-90 pointer-events-none transition-opacity group-hover:opacity-90"
-                        title="已配置URL链接"
-                      />
-                    )}
-                    {!button.url && !button.linked_screen_id && (
-                      <div
-                        className="absolute -top-1 -left-1 w-3 h-3 bg-yellow-500 rounded-full opacity-90 pointer-events-none transition-opacity group-hover:opacity-90"
-                        title="未配置跳转目标"
-                      />
-                    )}
-
-                    <div className="absolute -top-3 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-50">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEditClick(row, button);
-                        }}
-                        className="w-6 h-6 bg-white text-black rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform border border-gray-200"
-                        aria-label="Edit button"
-                        title="配置按钮跳转"
-                      >
-                        <Settings className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteButton?.(row.id, button.id);
-                        }}
-                        className="w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform border border-red-600"
-                        aria-label="Delete button"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={keyboard.map((row) => `row:${row.id}`)} strategy={verticalListSortingStrategy}>
+            {keyboard.map((row) => (
+              <SortableRow key={row.id} row={row} />
             ))}
-          </div>
-        ))}
+          </SortableContext>
+        </DndContext>
       </div>
     </>
   );

@@ -73,6 +73,7 @@ const TelegramChatWithDB = () => {
   const [jsonSyncError, setJsonSyncError] = useState<string | null>(null);
   const [isClearingScreens, setIsClearingScreens] = useState(false);
   const [lastSavedSnapshot, setLastSavedSnapshot] = useState<{ messageContent: string; keyboard: KeyboardRow[] } | null>(null);
+  const [codegenFramework, setCodegenFramework] = useState<"python-telegram-bot" | "aiogram" | "telegraf">("python-telegram-bot");
 
   // Custom Hooks
   const isOffline = useNetworkStatus();
@@ -82,6 +83,12 @@ const TelegramChatWithDB = () => {
     setMessageContent,
     keyboard,
     setKeyboard,
+    parseMode,
+    setParseMode,
+    messageType,
+    setMessageType,
+    mediaUrl,
+    setMediaUrl,
     pushToHistory,
     undo,
     redo,
@@ -89,7 +96,9 @@ const TelegramChatWithDB = () => {
     canRedo,
     editableJSON,
     setEditableJSON,
-    convertToTelegramFormat
+    convertToTelegramFormat,
+    serializeMessagePayload,
+    loadMessagePayload,
   } = useChatState();
 
   const {
@@ -121,6 +130,7 @@ const TelegramChatWithDB = () => {
     handleDeleteButton,
     handleAddButton,
     handleAddRow,
+    handleReorder,
   } = useKeyboardActions(setKeyboard, pushToHistory, messageContent, keyboard);
 
   const {
@@ -161,14 +171,17 @@ const TelegramChatWithDB = () => {
   };
 
   const applyScreenState = useCallback((screen: Screen) => {
-    setMessageContent(screen.message_content);
+    loadMessagePayload(screen.message_content);
+    if (screen.parse_mode) setParseMode(screen.parse_mode);
+    if (screen.message_type) setMessageType(screen.message_type);
+    if (screen.media_url) setMediaUrl(screen.media_url);
     setKeyboard(screen.keyboard as KeyboardRow[]);
     setLastSavedSnapshot({
       messageContent: screen.message_content,
       keyboard: cloneKeyboard(screen.keyboard as KeyboardRow[]),
     });
     setCurrentScreenId(screen.id);
-  }, []);
+  }, [loadMessagePayload, setParseMode, setMessageType, setMediaUrl]);
 
   const handleButtonClick = (button: KeyboardButton, rowId: string) => {
     if (isPreviewMode) {
@@ -211,14 +224,17 @@ const TelegramChatWithDB = () => {
       const savedScreen = await saveScreen({
         user_id: user.id,
         name: newScreenName,
-        message_content: messageContent,
+        message_content: serializeMessagePayload(),
         keyboard: keyboard as any,
       });
       if (savedScreen) {
         applyScreenState({
           ...(savedScreen as Screen),
           keyboard: keyboard as KeyboardRow[],
-          message_content: messageContent,
+          message_content: serializeMessagePayload(),
+          parse_mode: parseMode,
+          message_type: messageType,
+          media_url: mediaUrl,
         } as Screen);
         setNewScreenName("");
       }
@@ -234,13 +250,13 @@ const TelegramChatWithDB = () => {
       await updateScreen({
         screenId: currentScreenId,
         update: {
-          message_content: messageContent,
+          message_content: serializeMessagePayload(),
           keyboard: keyboard as any,
           updated_at: new Date().toISOString(),
         }
       });
       setLastSavedSnapshot({
-        messageContent,
+        messageContent: serializeMessagePayload(),
         keyboard: cloneKeyboard(keyboard),
       });
       toast.success("Screen updated");
@@ -378,6 +394,11 @@ const TelegramChatWithDB = () => {
         setMessageContent(nextMessage);
       }
 
+      if (typeof (data as any).parse_mode === "string") {
+        const mode = (data as any).parse_mode === "MarkdownV2" ? "MarkdownV2" : "HTML";
+        setParseMode(mode);
+      }
+
       const inlineKeyboard = (data as any).reply_markup?.inline_keyboard;
       const internalKeyboard = (data as any).keyboard;
       const nextKeyboard = inlineKeyboard ?? internalKeyboard;
@@ -402,12 +423,90 @@ const TelegramChatWithDB = () => {
         }
       }
 
+      if (typeof (data as any).photo === "string") {
+        setMessageType("photo");
+        setMediaUrl((data as any).photo);
+      } else if (typeof (data as any).video === "string") {
+        setMessageType("video");
+        setMediaUrl((data as any).video);
+      } else {
+        setMessageType("text");
+        setMediaUrl("");
+      }
+
       setJsonSyncError(null);
       toast.success("Applied JSON changes");
     } catch (e) {
       setJsonSyncError("Invalid JSON");
     }
   };
+
+  const handleCreateLink = useCallback((sourceId: string, targetId: string) => {
+    setScreens((prev) => {
+      const next = prev.map((s) => {
+        if (s.id !== sourceId) return s;
+        const rows = (s.keyboard as KeyboardRow[]).map((row) => ({
+          ...row,
+          buttons: row.buttons.map((btn) => ({ ...btn })),
+        }));
+        let updated = false;
+        for (const row of rows) {
+          const btn = row.buttons.find((b) => !b.linked_screen_id && !b.url);
+          if (btn) {
+            btn.linked_screen_id = targetId;
+            updated = true;
+            break;
+          }
+        }
+        if (!updated && rows[0]?.buttons[0]) {
+          rows[0].buttons[0].linked_screen_id = targetId;
+        }
+        if (currentScreenId === sourceId) {
+          setKeyboard(rows);
+          pushToHistory(messageContent, rows);
+        }
+        return { ...s, keyboard: rows };
+      });
+      return next;
+    });
+  }, [currentScreenId, pushToHistory, messageContent, setKeyboard]);
+
+  const generateCode = useCallback((framework: typeof codegenFramework) => {
+    const escapeStr = (val: string) => val.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+    const payload = convertToTelegramFormat();
+    const kb = (payload as any).reply_markup?.inline_keyboard ?? [];
+    const buildButtons = () =>
+      kb
+        .map(
+          (row: any[]) =>
+            "[" +
+            row
+              .map((btn: any) => {
+                const action = btn.url ? `url="${escapeStr(btn.url)}"` : `callback_data="${escapeStr(btn.callback_data)}"`;
+                return `{ text: "${escapeStr(btn.text)}", ${action} }`;
+              })
+              .join(", ") +
+            "]"
+        )
+        .join(",\n    ");
+
+    const captionRaw = "text" in payload ? (payload as any).text : (payload as any).caption || "";
+    const mediaRaw = "photo" in payload ? (payload as any).photo : "video" in payload ? (payload as any).video : null;
+    const caption = escapeStr(captionRaw);
+    const media = mediaRaw ? escapeStr(mediaRaw) : null;
+    const parseMode = (payload as any).parse_mode || "HTML";
+
+    if (framework === "python-telegram-bot") {
+      return `from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup\nfrom telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes\n\nasync def start(update: Update, context: ContextTypes.DEFAULT_TYPE):\n    keyboard = [\n    ${buildButtons()}\n    ]\n    markup = InlineKeyboardMarkup(keyboard)\n    ${media ? `await update.message.reply_${messageType === "photo" ? "photo" : "video"}("${media}", caption="${caption}", parse_mode="${parseMode}", reply_markup=markup)` : `await update.message.reply_text("${caption}", parse_mode="${parseMode}", reply_markup=markup)`}\n\nasync def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):\n    query = update.callback_query\n    await query.answer()\n    await query.edit_message_text(text="Received: " + (query.data or ""))\n\napp = ApplicationBuilder().token(\"<BOT_TOKEN>\").build()\napp.add_handler(CommandHandler(\"start\", start))\napp.add_handler(CallbackQueryHandler(on_callback))\napp.run_polling()\n`;
+    }
+    if (framework === "aiogram") {
+      return `from aiogram import Bot, Dispatcher, F\nfrom aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery\nfrom aiogram.filters import Command\nfrom aiogram.enums import ParseMode\nfrom aiogram import Router\n\nrouter = Router()\n\n@router.message(Command(\"start\"))\nasync def cmd_start(message: Message):\n    kb = InlineKeyboardMarkup(inline_keyboard=[\n    ${buildButtons()}\n    ])\n    ${media ? `await message.answer_${messageType === "photo" ? "photo" : "video"}("${media}", caption="${caption}", parse_mode=ParseMode.${parseMode === "HTML" ? "HTML" : "MARKDOWN_V2"}, reply_markup=kb)` : `await message.answer("${caption}", parse_mode=ParseMode.${parseMode === "HTML" ? "HTML" : "MARKDOWN_V2"}, reply_markup=kb)`}\n\n@router.callback_query()\nasync def on_callback(query: CallbackQuery):\n    await query.answer(\"Received: \" + (query.data or \"\"))\n\nbot = Bot(token=\"<BOT_TOKEN>\", parse_mode=ParseMode.${parseMode === "HTML" ? "HTML" : "MARKDOWN_V2"})\ndp = Dispatcher()\ndp.include_router(router)\ndp.run_polling(bot)\n`;
+    }
+
+    return `const { Telegraf, Markup } = require(\"telegraf\");\nconst bot = new Telegraf(process.env.BOT_TOKEN);\n\nbot.start((ctx) => {\n  const keyboard = ${kb.length ? "Markup.inlineKeyboard([\n    " + kb.map((row: any[]) => "[" + row.map((btn: any) => `Markup.button.${btn.url ? "url" : "callback"}(\"${btn.text}\", ${btn.url ? `"${btn.url}"` : `"${btn.callback_data}"`})`).join(", ") + "]`).join(",\n    ") + "\n  ])" : "Markup.inlineKeyboard([])"};\n  ${media ? `ctx.replyWith${messageType === "photo" ? "Photo" : "Video"}(\"${media}\", { caption: \"${caption}\", parse_mode: \"${parseMode}\", reply_markup: keyboard.reply_markup });` : `ctx.reply(\"${caption}\", { parse_mode: \"${parseMode}\", reply_markup: keyboard.reply_markup });`}\n});\n\nbot.on(\"callback_query\", (ctx) => ctx.answerCbQuery(\"Received: \" + (ctx.callbackQuery?.data || \"\")));\n\nbot.launch();\n`;
+  }, [convertToTelegramFormat, messageType]);
+
+  const codegenOutput = useMemo(() => generateCode(codegenFramework), [generateCode, codegenFramework]);
 
   const generateShareToken = () => {
     try {
@@ -444,6 +543,15 @@ const TelegramChatWithDB = () => {
     }
   };
 
+  const handleCopyCodegen = async () => {
+    try {
+      await navigator.clipboard.writeText(codegenOutput);
+      toast.success("代码已复制");
+    } catch (e) {
+      toast.error("复制失败");
+    }
+  };
+
   const handleRotateShareLink = async (screenId: string) => {
     const token = generateShareToken();
     await updateScreen({
@@ -461,15 +569,23 @@ const TelegramChatWithDB = () => {
     toast.success("Screen unshared");
   };
 
-  const handleFormatClick = () => {
-    // Format logic
+  const handleFormatClick = (format: 'bold' | 'italic' | 'code' | 'link') => {
+    if (format === "link") {
+      const url = prompt("输入链接 (https://...)");
+      if (url) {
+        messageBubbleRef.current?.applyFormat("link", url);
+      }
+    } else {
+      messageBubbleRef.current?.applyFormat(format);
+    }
+    messageBubbleRef.current?.focus();
   };
 
   const loadIssue = null; // Placeholder
   const circularReferences = []; // Placeholder
 
   const hasUnsavedChanges = !!lastSavedSnapshot && (
-    lastSavedSnapshot.messageContent !== messageContent ||
+    lastSavedSnapshot.messageContent !== serializeMessagePayload() ||
     JSON.stringify(lastSavedSnapshot.keyboard) !== JSON.stringify(keyboard)
   );
 
@@ -520,6 +636,12 @@ const TelegramChatWithDB = () => {
             newScreenName={newScreenName}
             onNewScreenNameChange={setNewScreenName}
             onFormatClick={handleFormatClick}
+            parseMode={parseMode}
+            onParseModeChange={setParseMode}
+            messageType={messageType}
+            mediaUrl={mediaUrl}
+            onMessageTypeChange={setMessageType}
+            onMediaUrlChange={setMediaUrl}
             onAddButton={handleAddButton}
             onAddRow={handleAddRow}
             allowCircular={allowCircular}
@@ -534,10 +656,17 @@ const TelegramChatWithDB = () => {
             messageContent={messageContent}
             setMessageContent={setMessageContent}
             keyboard={keyboard}
+            parseMode={parseMode}
+            onParseModeChange={setParseMode}
+            messageType={messageType}
+            mediaUrl={mediaUrl}
+            onMessageTypeChange={setMessageType}
+            onMediaUrlChange={setMediaUrl}
             onButtonTextChange={handleButtonTextChange}
             onButtonUpdate={handleButtonUpdate}
             onDeleteButton={handleDeleteButton}
             onButtonClick={handleButtonClick}
+            onKeyboardReorder={handleReorder}
             isPreviewMode={isPreviewMode}
             onToggleMode={() => setIsPreviewMode(!isPreviewMode)}
             canUndo={canUndo}
@@ -571,6 +700,10 @@ const TelegramChatWithDB = () => {
             retryingQueue={retryingQueue}
             isOffline={isOffline}
             onRetryPendingOps={() => { /* Implement retry */ }}
+            codegenFramework={codegenFramework}
+            onCodegenFrameworkChange={setCodegenFramework}
+            codegenOutput={codegenOutput}
+            onCopyCodegen={handleCopyCodegen}
           />
         }
       />
@@ -691,6 +824,7 @@ const TelegramChatWithDB = () => {
           onOpenChange={setFlowDiagramOpen}
           userId={user?.id || undefined}
           onLayoutSync={setLayoutSyncStatus}
+          onCreateLink={handleCreateLink}
           onScreenClick={(screenId) => {
             handleNavigateToScreen(screenId);
             const screen = screens.find(s => s.id === screenId);

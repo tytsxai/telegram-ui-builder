@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { KeyboardRow, KeyboardButton } from '@/types/telegram';
+import { KeyboardRow } from '@/types/telegram';
 
 const DEFAULT_KEYBOARD_TEMPLATE: KeyboardRow[] = [
     {
@@ -17,13 +17,34 @@ interface TelegramExportButton {
     callback_data?: string;
 }
 
-interface TelegramExportPayload {
-    text: string;
-    parse_mode: "HTML";
-    reply_markup?: {
-        inline_keyboard: TelegramExportButton[][];
+type ParseMode = "HTML" | "MarkdownV2";
+type MessageType = "text" | "photo" | "video";
+
+type TelegramExportPayload =
+    | {
+        text: string;
+        parse_mode: ParseMode;
+        reply_markup?: { inline_keyboard: TelegramExportButton[][] };
+    }
+    | {
+        photo: string;
+        caption?: string;
+        parse_mode: ParseMode;
+        reply_markup?: { inline_keyboard: TelegramExportButton[][] };
+    }
+    | {
+        video: string;
+        caption?: string;
+        parse_mode: ParseMode;
+        reply_markup?: { inline_keyboard: TelegramExportButton[][] };
     };
-}
+
+type SerializedMessage = {
+    type: MessageType;
+    text: string;
+    mediaUrl?: string;
+    parse_mode: ParseMode;
+};
 
 export const useChatState = () => {
     const [messageContent, setMessageContent] = useState("Welcome to the Telegram UI Builder!\n\nEdit this message directly.\n\nFormatting:\n**bold text** for bold\n`code blocks` for code");
@@ -31,6 +52,9 @@ export const useChatState = () => {
     const [history, setHistory] = useState<{ messageContent: string; keyboard: KeyboardRow[] }[]>([]);
     const [historyIndex, setHistoryIndex] = useState(-1);
     const [editableJSON, setEditableJSON] = useState("");
+    const [parseMode, setParseMode] = useState<ParseMode>("HTML");
+    const [messageType, setMessageType] = useState<MessageType>("text");
+    const [mediaUrl, setMediaUrl] = useState("");
 
     const pushToHistory = useCallback((content: string, kbd: KeyboardRow[]) => {
         setHistory((prev) => {
@@ -63,17 +87,37 @@ export const useChatState = () => {
     const canUndo = historyIndex > 0;
     const canRedo = historyIndex < history.length - 1;
 
-    const convertToTelegramFormat = useCallback((): TelegramExportPayload => {
-        const escapeHtml = (input: string) =>
-            input
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;");
+    const formatText = useCallback(
+        (text: string, mode: ParseMode) => {
+            if (mode === "HTML") {
+                const escapeHtml = (input: string) =>
+                    input
+                        .replace(/&/g, "&amp;")
+                        .replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;");
+                return escapeHtml(text)
+                    .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+                    .replace(/`(.*?)`/g, '<code>$1</code>')
+                    .replace(/_(.*?)_/g, '<i>$1</i>');
+            }
 
-        const text = escapeHtml(messageContent)
-            .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')  // Bold
-            .replace(/`(.*?)`/g, '<code>$1</code>')  // Code
-            .replace(/_(.*?)_/g, '<i>$1</i>');       // Italic
+            // MarkdownV2: assume text已包含所需格式，做基础转义（保留常见标记）
+            const escapeMd = (input: string) =>
+                input.replace(/([[\]()~`>#+\-=|{}.!])/g, "\\$1");
+            // 保留粗体/斜体/代码块，先标记再恢复
+            const placeholders: string[] = [];
+            const replaced = text.replace(/\*\*(.*?)\*\*|`(.*?)`|_(.*?)_/g, (match) => {
+                placeholders.push(match);
+                return `__MARK_${placeholders.length - 1}__`;
+            });
+            const escaped = escapeMd(replaced);
+            return escaped.replace(/__MARK_(\d+)__/g, (_, idx) => placeholders[Number(idx)]);
+        },
+        []
+    );
+
+    const convertToTelegramFormat = useCallback((): TelegramExportPayload => {
+        const formattedText = formatText(messageContent, parseMode);
 
         const reply_markup = keyboard.length > 0 ? {
             inline_keyboard: keyboard.map(row =>
@@ -91,12 +135,60 @@ export const useChatState = () => {
             )
         } : undefined;
 
+        if (messageType === "photo" && mediaUrl) {
+            return {
+                photo: mediaUrl,
+                caption: formattedText,
+                parse_mode: parseMode,
+                ...(reply_markup && { reply_markup }),
+            };
+        }
+        if (messageType === "video" && mediaUrl) {
+            return {
+                video: mediaUrl,
+                caption: formattedText,
+                parse_mode: parseMode,
+                ...(reply_markup && { reply_markup }),
+            };
+        }
         return {
-            text,
-            parse_mode: "HTML",
+            text: formattedText,
+            parse_mode: parseMode,
             ...(reply_markup && { reply_markup })
         };
-    }, [messageContent, keyboard]);
+    }, [messageContent, keyboard, parseMode, messageType, mediaUrl, formatText]);
+
+    const serializeMessagePayload = useCallback(() => {
+        const payload: SerializedMessage = {
+            type: messageType,
+            text: messageContent,
+            mediaUrl: mediaUrl || undefined,
+            parse_mode: parseMode,
+        };
+        if (messageType === "text" && !mediaUrl && parseMode === "HTML") {
+            return messageContent;
+        }
+        return JSON.stringify(payload);
+    }, [messageType, messageContent, mediaUrl, parseMode]);
+
+    const loadMessagePayload = useCallback((raw: string) => {
+        try {
+            const parsed = JSON.parse(raw) as Partial<SerializedMessage>;
+            if (parsed && typeof parsed === "object" && parsed.type && parsed.text !== undefined) {
+                setMessageContent(parsed.text || "");
+                setParseMode((parsed.parse_mode as ParseMode) || "HTML");
+                setMessageType((parsed.type as MessageType) || "text");
+                setMediaUrl(parsed.mediaUrl || "");
+                return;
+            }
+        } catch {
+            // fallback to plain text
+        }
+        setMessageContent(raw);
+        setParseMode("HTML");
+        setMessageType("text");
+        setMediaUrl("");
+    }, []);
 
     useEffect(() => {
         setEditableJSON(JSON.stringify(convertToTelegramFormat(), null, 2));
@@ -107,6 +199,12 @@ export const useChatState = () => {
         setMessageContent,
         keyboard,
         setKeyboard,
+        parseMode,
+        setParseMode,
+        messageType,
+        setMessageType,
+        mediaUrl,
+        setMediaUrl,
         pushToHistory,
         undo,
         redo,
@@ -114,6 +212,8 @@ export const useChatState = () => {
         canRedo,
         editableJSON,
         setEditableJSON,
-        convertToTelegramFormat
+        convertToTelegramFormat,
+        serializeMessagePayload,
+        loadMessagePayload,
     };
 };

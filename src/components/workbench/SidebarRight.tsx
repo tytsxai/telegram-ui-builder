@@ -12,6 +12,12 @@ interface SidebarRightProps {
 
     // Message Formatting
     onFormatClick: (format: 'bold' | 'italic' | 'code' | 'link') => void;
+    parseMode: "HTML" | "MarkdownV2";
+    onParseModeChange: (mode: "HTML" | "MarkdownV2") => void;
+    messageType: "text" | "photo" | "video";
+    mediaUrl: string;
+    onMessageTypeChange: (type: "text" | "photo" | "video") => void;
+    onMediaUrlChange: (url: string) => void;
 
     // Keyboard Controls
     onAddButton: () => void;
@@ -38,6 +44,12 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
     isOffline,
     currentScreenId,
     onOpenRenameDialog,
+    parseMode,
+    onParseModeChange,
+    messageType,
+    mediaUrl,
+    onMessageTypeChange,
+    onMediaUrlChange,
 }) => {
     return (
         <div className="flex flex-col h-full p-4 space-y-6">
@@ -72,6 +84,43 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
             {/* Message Editor Controls */}
             <div className="space-y-4">
                 <h3 className="text-sm font-medium text-muted-foreground">消息内容</h3>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="space-y-1">
+                        <Label>Parse Mode</Label>
+                        <select
+                            value={parseMode}
+                            onChange={(e) => onParseModeChange(e.target.value as any)}
+                            className="w-full h-8 rounded border bg-background text-foreground text-xs px-2"
+                        >
+                            <option value="HTML">HTML</option>
+                            <option value="MarkdownV2">MarkdownV2</option>
+                        </select>
+                    </div>
+                    <div className="space-y-1">
+                        <Label>消息类型</Label>
+                        <select
+                            value={messageType}
+                            onChange={(e) => onMessageTypeChange(e.target.value as any)}
+                            className="w-full h-8 rounded border bg-background text-foreground text-xs px-2"
+                        >
+                            <option value="text">文本</option>
+                            <option value="photo">图片</option>
+                            <option value="video">视频</option>
+                        </select>
+                    </div>
+                </div>
+                {messageType !== "text" && (
+                    <div className="space-y-2">
+                        <Label>媒体 URL</Label>
+                        <Input
+                            placeholder="https://..."
+                            value={mediaUrl}
+                            onChange={(e) => onMediaUrlChange(e.target.value)}
+                            className="h-8 text-xs"
+                        />
+                        <p className="text-[11px] text-muted-foreground">预览仅使用客户端，不会上传文件。</p>
+                    </div>
+                )}
                 <div className="grid grid-cols-4 gap-2">
                     <Button onClick={() => onFormatClick('bold')} variant="outline" size="icon" title="粗体">
                         <Bold className="w-4 h-4" />

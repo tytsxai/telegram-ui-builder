@@ -21,6 +21,8 @@ describe("useChatState", () => {
     act(() => {
       result.current.setMessageContent("Hello **World** `code` _italic_");
       result.current.setKeyboard(keyboard);
+      result.current.setParseMode("HTML");
+      result.current.setMessageType("text");
     });
 
     await waitFor(() => {
@@ -36,6 +38,26 @@ describe("useChatState", () => {
 
     const payload = result.current.convertToTelegramFormat();
     expect(payload.reply_markup?.inline_keyboard[0][1].callback_data).toBe("goto_screen_screen-2");
+  });
+
+  it("supports media payload and MarkdownV2", async () => {
+    const { result } = renderHook(() => useChatState());
+
+    act(() => {
+      result.current.setMessageContent("**bold**");
+      result.current.setMediaUrl("https://example.com/photo.jpg");
+      result.current.setMessageType("photo");
+      result.current.setParseMode("MarkdownV2");
+    });
+
+    const payload = result.current.convertToTelegramFormat();
+    if ("photo" in payload) {
+      expect(payload.photo).toBe("https://example.com/photo.jpg");
+      expect(payload.caption).toContain("**bold**");
+      expect(payload.parse_mode).toBe("MarkdownV2");
+    } else {
+      throw new Error("Expected photo payload");
+    }
   });
 
   it("tracks history and supports undo/redo", () => {

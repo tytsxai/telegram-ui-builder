@@ -16,6 +16,9 @@ export interface Screen {
     name: string;
     message_content: string;
     keyboard: KeyboardRow[];
+    parse_mode?: "HTML" | "MarkdownV2";
+    message_type?: "text" | "photo" | "video";
+    media_url?: string | null;
     share_token?: string | null;
     is_public?: boolean | null;
     created_at?: string | null;

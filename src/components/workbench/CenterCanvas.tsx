@@ -5,17 +5,25 @@ import MessageBubble, { MessageBubbleHandle } from "../MessageBubble";
 import InlineKeyboard from "../InlineKeyboard";
 import { Screen, KeyboardRow, KeyboardButton } from "@/types/telegram";
 import { SyncStatus } from "@/types/sync";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface CenterCanvasProps {
     messageContent: string;
     setMessageContent: (content: string | ((prev: string) => string)) => void;
     keyboard: KeyboardRow[];
+    parseMode: "HTML" | "MarkdownV2";
+    onParseModeChange: (mode: "HTML" | "MarkdownV2") => void;
+    messageType: "text" | "photo" | "video";
+    mediaUrl: string;
+    onMessageTypeChange: (type: "text" | "photo" | "video") => void;
+    onMediaUrlChange: (url: string) => void;
 
     // Handlers
     onButtonTextChange: (rowId: string, buttonId: string, newText: string) => void;
     onButtonUpdate: (rowId: string, buttonId: string, updatedButton: KeyboardButton) => void;
     onDeleteButton: (rowId: string, buttonId: string) => void;
     onButtonClick: (button: KeyboardButton) => void;
+    onKeyboardReorder: (rows: KeyboardRow[]) => void;
 
     // State
     isPreviewMode: boolean;
@@ -51,6 +59,7 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
     onButtonUpdate,
     onDeleteButton,
     onButtonClick,
+    onKeyboardReorder,
     isPreviewMode,
     onToggleMode,
     canUndo,
@@ -67,6 +76,12 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
     shareSyncStatus,
     layoutSyncStatus,
     pendingQueueSize,
+    parseMode,
+    onParseModeChange,
+    messageType,
+    mediaUrl,
+    onMessageTypeChange,
+    onMediaUrlChange,
 }) => {
     React.useEffect(() => {
         const savedTheme = localStorage.getItem("theme");
@@ -137,7 +152,18 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
                 </div>
 
                 {!isPreviewMode && (
-                    <div className="flex gap-1">
+                    <div className="flex gap-2 items-center">
+                        <div className="flex items-center gap-1">
+                            <Select value={parseMode} onValueChange={(v) => onParseModeChange(v as any)}>
+                                <SelectTrigger className="h-8 w-[150px]">
+                                    <SelectValue placeholder="Parse mode" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="HTML">HTML</SelectItem>
+                                    <SelectItem value="MarkdownV2">MarkdownV2</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
                         <Button variant="ghost" size="icon" onClick={onUndo} disabled={!canUndo} className="h-8 w-8" title="撤销">
                             <Undo2 className="w-4 h-4" />
                         </Button>
@@ -193,12 +219,31 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
                 {/* Content Area */}
                 <div className="min-h-[500px] p-4 font-telegram relative">
                     {/* Background Pattern could go here */}
-                    <div className="inline-block max-w-[90%] w-full">
+                    <div className="inline-block max-w-[90%] w-full space-y-3">
+                        {messageType !== "text" && mediaUrl && (
+                            <div className="w-full rounded-xl overflow-hidden border border-border bg-black/40">
+                                {messageType === "photo" ? (
+                                    <img src={mediaUrl} alt="media preview" className="w-full object-cover" />
+                                ) : (
+                                    <video src={mediaUrl} controls className="w-full object-cover" />
+                                )}
+                            </div>
+                        )}
                         <MessageBubble
                             ref={messageBubbleRef}
                             content={messageContent}
                             onContentChange={setMessageContent}
                         />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {messageType !== "text" && (
+                                <div className="text-xs text-muted-foreground">
+                                    当前消息类型: {messageType} {mediaUrl ? "(已设置URL)" : "(未设置URL)"}
+                                </div>
+                            )}
+                            <div className="text-xs text-muted-foreground">
+                                Parse Mode: {parseMode}
+                            </div>
+                        </div>
                         <InlineKeyboard
                             keyboard={keyboard}
                             onButtonTextChange={onButtonTextChange}
@@ -207,6 +252,7 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
                             onButtonClick={onButtonClick}
                             isPreviewMode={isPreviewMode}
                             screens={screens}
+                            onReorder={onKeyboardReorder}
                         />
                     </div>
                 </div>

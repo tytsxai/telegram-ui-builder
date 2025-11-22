@@ -118,11 +118,17 @@ export const useKeyboardActions = (
         });
     }, [setKeyboard, pushToHistory, messageContent]);
 
+    const handleReorder = useCallback((rows: KeyboardRow[]) => {
+        setKeyboard(rows);
+        pushToHistory(messageContent, rows);
+    }, [setKeyboard, pushToHistory, messageContent]);
+
     return {
         handleButtonTextChange,
         handleButtonUpdate,
         handleDeleteButton,
         handleAddButton,
         handleAddRow,
+        handleReorder,
     };
 };

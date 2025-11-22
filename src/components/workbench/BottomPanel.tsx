@@ -20,6 +20,10 @@ interface BottomPanelProps {
     onRetryPendingOps?: () => void;
     retryingQueue?: boolean;
     isOffline?: boolean;
+    codegenFramework: "python-telegram-bot" | "aiogram" | "telegraf";
+    onCodegenFrameworkChange: (fw: "python-telegram-bot" | "aiogram" | "telegraf") => void;
+    codegenOutput: string;
+    onCopyCodegen: () => void;
 }
 
 export const BottomPanel: React.FC<BottomPanelProps> = ({
@@ -36,6 +40,10 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
     onRetryPendingOps,
     retryingQueue,
     isOffline,
+    codegenFramework,
+    onCodegenFrameworkChange,
+    codegenOutput,
+    onCopyCodegen,
 }) => {
     return (
         <div className="p-4 space-y-4">
@@ -88,6 +96,33 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
                         </AlertDescription>
                     </Alert>
                 )}
+            </div>
+
+            {/* Codegen */}
+            <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-muted-foreground">代码生成</h3>
+                    <div className="flex items-center gap-2">
+                        <select
+                            value={codegenFramework}
+                            onChange={(e) => onCodegenFrameworkChange(e.target.value as any)}
+                            className="h-8 rounded border bg-background text-foreground text-xs px-2"
+                        >
+                            <option value="python-telegram-bot">python-telegram-bot</option>
+                            <option value="aiogram">aiogram</option>
+                            <option value="telegraf">Telegraf (JS)</option>
+                        </select>
+                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onCopyCodegen} disabled={!codegenOutput.trim()}>
+                            复制
+                        </Button>
+                    </div>
+                </div>
+                <Textarea
+                    value={codegenOutput}
+                    readOnly
+                    className="font-mono text-xs min-h-[180px] resize-none bg-muted/30"
+                    placeholder="生成的代码将显示在此"
+                />
             </div>
 
             {/* JSON Editor */}
