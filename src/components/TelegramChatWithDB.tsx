@@ -1018,21 +1018,32 @@ const TelegramChatWithDB = () => {
           />
         }
         bottomPanel={
-          <BottomPanel
-            editableJSON={editableJSON}
-            onEditableJSONChange={setEditableJSON}
-            onApplyJSON={handleApplyEditedJSON}
-            jsonSyncError={jsonSyncError}
+      <BottomPanel
+        editableJSON={editableJSON}
+        onEditableJSONChange={setEditableJSON}
+        onApplyJSON={handleApplyEditedJSON}
+        jsonSyncError={jsonSyncError}
             isImporting={isImporting}
             loadIssue={loadIssue}
             circularReferences={circularReferences}
             allowCircular={allowCircular}
-            pendingOpsNotice={pendingOpsNotice}
-            pendingQueueSize={pendingQueueSize}
-            retryingQueue={retryingQueue}
-            isOffline={isOffline}
-            onRetryPendingOps={replayPendingQueue}
-            onClearPendingOps={clearPendingQueue}
+        pendingOpsNotice={pendingOpsNotice}
+        pendingQueueSize={pendingQueueSize}
+        pendingItems={readPendingOps(user?.id)}
+        onExportPending={() => {
+          const items = readPendingOps(user?.id);
+          const blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = "pending-queue.json";
+          link.click();
+          URL.revokeObjectURL(url);
+        }}
+        retryingQueue={retryingQueue}
+        isOffline={isOffline}
+        onRetryPendingOps={replayPendingQueue}
+        onClearPendingOps={clearPendingQueue}
             codegenFramework={codegenFramework}
             onCodegenFrameworkChange={setCodegenFramework}
             codegenOutput={codegenOutput}

@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface BottomPanelProps {
     editableJSON: string;
@@ -19,6 +21,8 @@ interface BottomPanelProps {
     pendingQueueSize?: number;
     onRetryPendingOps?: () => void;
     onClearPendingOps?: () => void;
+    pendingItems?: Array<{ id: string; kind: string; lastError?: string; createdAt?: number }>;
+    onExportPending?: () => void;
     retryingQueue?: boolean;
     isOffline?: boolean;
     codegenFramework: "python-telegram-bot" | "aiogram" | "telegraf";
@@ -40,6 +44,8 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
     pendingQueueSize,
     onRetryPendingOps,
     onClearPendingOps,
+    pendingItems = [],
+    onExportPending,
     retryingQueue,
     isOffline,
     codegenFramework,
@@ -47,6 +53,8 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
     codegenOutput,
     onCopyCodegen,
 }) => {
+    const [confirmOpen, setConfirmOpen] = React.useState(false);
+
     return (
         <div className="p-4 space-y-4">
             {/* Logs Section */}
@@ -56,7 +64,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
                         <AlertCircle className="h-4 w-4 text-amber-600" />
                         <AlertDescription className="text-xs text-foreground">
                             有未同步的保存请求（{pendingQueueSize ?? "?"}），请联网后重试。
-                            <div className="mt-2">
+                            <div className="mt-2 flex flex-wrap gap-2 items-center">
                                 <Button
                                     size="sm"
                                     variant="outline"
@@ -69,17 +77,36 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
                                 <Button
                                     size="sm"
                                     variant="ghost"
-                                    className="h-7 text-xs ml-2"
+                                    className="h-7 text-xs"
                                     disabled={retryingQueue}
-                                    onClick={() => {
-                                        if (onClearPendingOps && confirm("确定要清空离线队列吗？未同步的更改将被丢弃。")) {
-                                            onClearPendingOps();
-                                        }
-                                    }}
+                                    onClick={() => setConfirmOpen(true)}
                                 >
                                     清空队列
                                 </Button>
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 text-xs"
+                                    disabled={!pendingItems.length}
+                                    onClick={onExportPending}
+                                >
+                                    导出队列
+                                </Button>
                             </div>
+                            {pendingItems.length > 0 && (
+                                <ScrollArea className="h-24 mt-2 rounded border border-amber-200/60">
+                                    <div className="p-2 space-y-1 text-xs text-muted-foreground">
+                                        {pendingItems.map((item) => (
+                                            <div key={item.id} className="flex justify-between gap-2">
+                                                <span>{item.kind} · {item.id.slice(0, 6)}</span>
+                                                <span className="text-[11px] text-amber-700 truncate max-w-[180px]">
+                                                    {item.lastError || "待重试"}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </ScrollArea>
+                            )}
                         </AlertDescription>
                     </Alert>
                 )}
@@ -169,6 +196,27 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
                     )}
                 </div>
             </div>
+
+            <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>清空离线队列</DialogTitle>
+                    </DialogHeader>
+                    <p className="text-sm text-muted-foreground">未同步的更改将被丢弃，确认继续？</p>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setConfirmOpen(false)}>取消</Button>
+                        <Button
+                            variant="destructive"
+                            onClick={() => {
+                                setConfirmOpen(false);
+                                onClearPendingOps?.();
+                            }}
+                        >
+                            清空
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };

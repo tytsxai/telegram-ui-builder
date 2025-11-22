@@ -40,6 +40,7 @@ const genId = () => {
 };
 
 const persist = (items: PendingItem[], userId?: string | null) => {
+  if (typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(buildKey(userId), JSON.stringify(items));
   } catch (e) {
@@ -48,6 +49,7 @@ const persist = (items: PendingItem[], userId?: string | null) => {
 };
 
 export const clearPendingOps = (userId?: string | null) => {
+  if (typeof localStorage === "undefined") return;
   try {
     localStorage.removeItem(buildKey(userId));
   } catch (e) {
@@ -112,6 +114,7 @@ const reviveLegacy = (userId: string | null | undefined) => {
 };
 
 export const readPendingOps = (userId?: string | null): PendingItem[] => {
+  if (typeof localStorage === "undefined") return [];
   try {
     const raw = localStorage.getItem(buildKey(userId));
     if (!raw) {
