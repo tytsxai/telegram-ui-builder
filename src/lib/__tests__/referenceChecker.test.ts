@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectCircularReferences, findAllCircularReferences, findScreenReferences } from "../referenceChecker";
+import { circularEdgesFromPaths, detectCircularReferences, findAllCircularReferences, findCircularEdges, findScreenReferences } from "../referenceChecker";
 import type { Screen } from "@/types/telegram";
 
 const makeScreen = (id: string, links: string[] = []): Screen => ({
@@ -50,5 +50,21 @@ describe("referenceChecker", () => {
     expect(paths).toContain("a");
     expect(paths).toContain("b");
     expect(paths).toContain("c");
+  });
+
+  it("maps cycles to edge identifiers", () => {
+    const cycles = findAllCircularReferences(screens);
+    const edges = circularEdgesFromPaths(cycles);
+    expect(edges.has("a->b")).toBe(true);
+    expect(edges.has("b->c")).toBe(true);
+    expect(edges.has("c->a")).toBe(true);
+  });
+
+  it("derives circular edges directly from screens", () => {
+    const edges = findCircularEdges(screens);
+    expect(edges.has("a->b")).toBe(true);
+    expect(edges.has("b->c")).toBe(true);
+    expect(edges.has("c->a")).toBe(true);
+    expect(edges.has("d->a")).toBe(false);
   });
 });

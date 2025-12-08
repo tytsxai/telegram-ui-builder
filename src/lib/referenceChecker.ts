@@ -125,6 +125,21 @@ export const findAllCircularReferences = (
   return circles;
 };
 
+export const circularEdgesFromPaths = (cycles: Array<{ path: string[] }>): Set<string> => {
+  const edgeIds = new Set<string>();
+  cycles.forEach(({ path }) => {
+    for (let i = 0; i < path.length - 1; i++) {
+      edgeIds.add(`${path[i]}->${path[i + 1]}`);
+    }
+  });
+  return edgeIds;
+};
+
+export const findCircularEdges = (allScreens: Screen[]): Set<string> => {
+  const cycles = findAllCircularReferences(allScreens);
+  return circularEdgesFromPaths(cycles);
+};
+
 /**
  * 获取模版的所有子孙模版（递归）
  */

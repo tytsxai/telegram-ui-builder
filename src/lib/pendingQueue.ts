@@ -1,31 +1,35 @@
 import type { TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
+import { computeBackoffDelay } from "./supabaseRetry";
+import { publishSyncEvent } from "./syncTelemetry";
 
 export type SavePayload = TablesInsert<"screens">;
 export type UpdatePayload = { id: string; update: TablesUpdate<"screens"> };
 
+export type PendingFailure = { at: number; message: string; requestId?: string };
+
+type PendingBase = {
+  id: string;
+  createdAt: number;
+  attempts: number;
+  lastError?: string;
+  lastAttemptAt?: number;
+  failures?: PendingFailure[];
+};
+
 export type PendingItem =
-  | {
-      id: string;
+  | (PendingBase & {
       kind: "save";
       payload: SavePayload;
-      createdAt: number;
-      attempts: number;
-      lastError?: string;
-      lastAttemptAt?: number;
-    }
-  | {
-      id: string;
+    })
+  | (PendingBase & {
       kind: "update";
       payload: UpdatePayload;
-      createdAt: number;
-      attempts: number;
-      lastError?: string;
-      lastAttemptAt?: number;
-    };
+    });
 
 const STORAGE_VERSION = "v2";
 const buildKey = (userId?: string | null) => `pending_ops_${STORAGE_VERSION}_${userId ?? "anon"}`;
 const now = () => Date.now();
+const MAX_FAILURE_LOG = 5;
 const genId = () => {
   try {
     // @ts-expect-error crypto may not exist in all environments
@@ -115,6 +119,36 @@ const reviveLegacy = (userId: string | null | undefined) => {
 
 export const readPendingOps = (userId?: string | null): PendingItem[] => {
   if (typeof localStorage === "undefined") return [];
+  const normalizeFailures = (item: unknown, fallbackMessage?: string, fallbackAt?: number): PendingFailure[] | undefined => {
+    if (!item) {
+      if (fallbackMessage && typeof fallbackAt === "number") {
+        return [{ at: fallbackAt, message: fallbackMessage }];
+      }
+      return undefined;
+    }
+
+    if (Array.isArray(item)) {
+      const entries = item
+        .map((f) => {
+          if (!f || typeof f !== "object") return null;
+          const at = (f as PendingFailure).at;
+          const message = (f as PendingFailure).message;
+          const requestId = typeof (f as PendingFailure).requestId === "string" ? (f as PendingFailure).requestId : undefined;
+          if (typeof at !== "number" || typeof message !== "string") return null;
+          return { at, message, requestId } as PendingFailure;
+        })
+        .filter(Boolean) as PendingFailure[];
+      if (entries.length > 0) {
+        return entries.slice(-MAX_FAILURE_LOG);
+      }
+    }
+
+    if (fallbackMessage && typeof fallbackAt === "number") {
+      return [{ at: fallbackAt, message: fallbackMessage }];
+    }
+    return undefined;
+  };
+
   try {
     const raw = localStorage.getItem(buildKey(userId));
     if (!raw) {
@@ -129,7 +163,9 @@ export const readPendingOps = (userId?: string | null): PendingItem[] => {
         const attempts = typeof item.attempts === "number" ? item.attempts : 0;
         const createdAt = typeof item.createdAt === "number" ? item.createdAt : now();
         const lastAttemptAt = typeof (item as PendingItem).lastAttemptAt === "number" ? (item as PendingItem).lastAttemptAt : undefined;
-        return { ...item, attempts, createdAt, lastAttemptAt } as PendingItem;
+        const lastError = typeof (item as PendingItem).lastError === "string" ? (item as PendingItem).lastError : undefined;
+        const failures = normalizeFailures((item as PendingItem).failures, lastError, lastAttemptAt);
+        return { ...item, attempts, createdAt, lastAttemptAt, failures, lastError } as PendingItem;
       })
       .filter(Boolean) as PendingItem[];
   } catch {
@@ -145,6 +181,7 @@ export const enqueueSaveOperation = (payload: SavePayload, userId?: string | nul
     payload,
     createdAt: now(),
     attempts: 0,
+    failures: [],
   };
   queue.push(op);
   persist(queue, userId);
@@ -161,6 +198,7 @@ export const enqueueUpdateOperation = (payload: UpdatePayload, userId?: string |
     payload,
     createdAt: now(),
     attempts: 0,
+    failures: [],
   };
   nextQueue.push(op);
   persist(nextQueue, userId);
@@ -171,9 +209,11 @@ type ProcessOptions = {
   userId?: string | null;
   maxAttempts?: number;
   backoffMs?: number;
+  jitterRatio?: number;
   execute: (item: PendingItem) => Promise<void>;
   signal?: AbortSignal;
   onSuccess?: (item: PendingItem) => void;
+  onItemFailure?: (item: PendingItem, error: unknown, meta: { attempt: number; delayMs?: number }) => void;
   onPermanentFailure?: (item: PendingItem, error: unknown) => void;
 };
 
@@ -181,12 +221,14 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Runs the pending queue in-order. Successful operations are removed.
- * Failures are retried with backoff; after maxAttempts they are dropped
- * and surfaced via onPermanentFailure.
+ * Failures are retried with exponential backoff + jitter; each failure
+ * is recorded on the item (lastError/lastAttemptAt/failures). After
+ * maxAttempts items are dropped and surfaced via onPermanentFailure.
  */
 export const processPendingOps = async (options: ProcessOptions) => {
   const maxAttempts = options.maxAttempts ?? 3;
   const backoffMs = options.backoffMs ?? 400;
+  const jitterRatio = options.jitterRatio ?? 0.25;
   const queue = readPendingOps(options.userId);
 
   for (let i = 0; i < queue.length; ) {
@@ -200,21 +242,39 @@ export const processPendingOps = async (options: ProcessOptions) => {
       continue;
     } catch (error) {
       const attempts = item.attempts + 1;
+      const failureAt = now();
+      const message = error instanceof Error ? error.message : String(error);
+      const requestId = typeof (error as { requestId?: string } | undefined)?.requestId === "string" ? (error as { requestId?: string }).requestId : undefined;
+      const failures = [...(item.failures ?? []), { at: failureAt, message, requestId }].slice(-MAX_FAILURE_LOG);
       const updated: PendingItem = {
         ...item,
         attempts,
-        lastError: error instanceof Error ? error.message : String(error),
-        lastAttemptAt: Date.now(),
+        lastError: message,
+        lastAttemptAt: failureAt,
+        failures,
       };
+      const delayMs = computeBackoffDelay(backoffMs, attempts - 1, jitterRatio);
+      publishSyncEvent({
+        scope: "queue",
+        status: {
+          state: "error",
+          requestId: requestId ?? item.id,
+          message: `${item.kind} ${item.id} failed (${attempts}/${maxAttempts}): ${message}`,
+          at: failureAt,
+        },
+      });
       if (attempts >= maxAttempts) {
         queue.splice(i, 1);
         persist(queue, options.userId);
+        options.onItemFailure?.(updated, error, { attempt: attempts });
         options.onPermanentFailure?.(updated, error);
         continue;
       }
       queue[i] = updated;
       persist(queue, options.userId);
-      await wait(backoffMs * attempts);
+      options.onItemFailure?.(updated, error, { attempt: attempts, delayMs });
+      if (options.signal?.aborted) break;
+      await wait(delayMs);
       // retry the same index after backoff
     }
   }

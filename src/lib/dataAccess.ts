@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { TablesInsert, TablesUpdate, Database } from "@/integrations/supabase/types";
-import { withRetry, logSupabaseError } from "./supabaseRetry";
+import { withRetry, logSupabaseError, type RetryEvent } from "./supabaseRetry";
 
 export type SaveScreenInput = TablesInsert<"screens">;
 export type UpdateScreenInput = {
@@ -20,6 +20,8 @@ export interface DataAccessOptions {
   userId?: string | null;
   retryAttempts?: number;
   backoffMs?: number;
+  jitterRatio?: number;
+  onRetry?: (event: RetryEvent & { action: string; table: string; userId?: string | null }) => void;
 }
 
 type ScreenRow = Database["public"]["Tables"]["screens"]["Row"];
@@ -33,11 +35,15 @@ export class SupabaseDataAccess {
   private readonly userId?: string | null;
   private readonly retryAttempts: number;
   private readonly backoffMs: number;
+  private readonly jitterRatio: number;
+  private readonly onRetry?: DataAccessOptions["onRetry"];
 
   constructor(private readonly client = supabase, options: DataAccessOptions = {}) {
     this.userId = options.userId;
     this.retryAttempts = options.retryAttempts ?? 3;
     this.backoffMs = options.backoffMs ?? 400;
+    this.jitterRatio = options.jitterRatio ?? 0.25;
+    this.onRetry = options.onRetry;
   }
 
   async saveScreen(payload: SaveScreenInput) {
@@ -101,6 +107,18 @@ export class SupabaseDataAccess {
     });
   }
 
+  async fetchPins(params: { userId: string }): Promise<string[]> {
+    return this.run("select", "user_pins", async () => {
+      const { data, error } = await this.client
+        .from("user_pins")
+        .select("pinned_ids")
+        .eq("user_id", params.userId)
+        .single();
+      if (error && error.code !== "PGRST116") throw error;
+      return (data?.pinned_ids as string[]) ?? [];
+    });
+  }
+
   async upsertLayouts(payload: UpsertLayoutsInput) {
     if (payload.length === 0) return [];
     return this.run("upsert", "screen_layouts", async () => {
@@ -161,10 +179,81 @@ export class SupabaseDataAccess {
     return this.saveScreen(payload);
   }
 
+  async publishShareToken(params: { screenId: string; token: string }) {
+    const targetUserId = this.userId;
+    if (!targetUserId) {
+      throw new Error("publishShareToken requires userId");
+    }
+
+    return this.run("share_publish", "screens", async () => {
+      const { data, error } = await this.client
+        .from("screens")
+        .update({ share_token: params.token, is_public: true })
+        .eq("id", params.screenId)
+        .eq("user_id", targetUserId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as ScreenRow;
+    });
+  }
+
+  async rotateShareToken(screenId: string, token: string) {
+    const targetUserId = this.userId;
+    if (!targetUserId) {
+      throw new Error("rotateShareToken requires userId");
+    }
+
+    return this.run("share_rotate", "screens", async () => {
+      const { data, error } = await this.client
+        .from("screens")
+        .update({ share_token: token, is_public: true })
+        .eq("id", screenId)
+        .eq("user_id", targetUserId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as ScreenRow;
+    });
+  }
+
+  async revokeShareToken(screenId: string) {
+    const targetUserId = this.userId;
+    if (!targetUserId) {
+      throw new Error("revokeShareToken requires userId");
+    }
+
+    return this.run("share_revoke", "screens", async () => {
+      const { data, error } = await this.client
+        .from("screens")
+        .update({ share_token: null, is_public: false })
+        .eq("id", screenId)
+        .eq("user_id", targetUserId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as ScreenRow;
+    });
+  }
+
   private async run<T>(action: string, table: string, op: () => Promise<T>): Promise<T> {
     const requestId = safeUUID();
     try {
-      return await withRetry(() => op(), { attempts: this.retryAttempts, backoffMs: this.backoffMs });
+      return await withRetry(() => op(), {
+        attempts: this.retryAttempts,
+        backoffMs: this.backoffMs,
+        jitterRatio: this.jitterRatio,
+        requestId,
+        onRetry: this.onRetry
+          ? (event) =>
+              this.onRetry?.({
+                ...event,
+                action,
+                table,
+                userId: this.userId,
+              })
+          : undefined,
+      });
     } catch (error) {
       logSupabaseError({ action, table, userId: this.userId ?? undefined, error, requestId });
       throw error;
