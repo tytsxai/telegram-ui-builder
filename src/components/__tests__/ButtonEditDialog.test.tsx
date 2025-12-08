@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { validateButtonFields } from "../ButtonEditDialog";
 import type { KeyboardButton } from "@/types/telegram";
+import { buildCallbackData } from "@/lib/callbackHelper";
 
 const baseButton: KeyboardButton = {
   id: "btn-1",
@@ -30,5 +31,17 @@ describe("ButtonEditDialog validation", () => {
   it("requires linked screen when action is link", () => {
     expect(validateButtonFields({ ...baseButton, linked_screen_id: undefined }, "link").link).toBeDefined();
     expect(validateButtonFields({ ...baseButton, linked_screen_id: "s1" }, "link").link).toBeUndefined();
+  });
+
+  it("generates callback_data within 64B using helper defaults", () => {
+    const { value, bytes } = buildCallbackData({
+      prefix: "flow",
+      action: "link",
+      data: { id: "s1", page: 2, extra: "x".repeat(128) },
+      ttlSeconds: 120,
+      nonce: true,
+    });
+    expect(value.startsWith("flow:link")).toBe(true);
+    expect(bytes).toBeLessThanOrEqual(64);
   });
 });
