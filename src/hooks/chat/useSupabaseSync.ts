@@ -2,10 +2,11 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { SupabaseDataAccess, SaveScreenInput, UpdateScreenInput } from '@/lib/dataAccess';
 import { Screen } from '@/types/telegram';
-import { SyncStatus } from '@/types/sync';
+import { SyncStatus, makeRequestId } from '@/types/sync';
 import { publishSyncEvent } from '@/lib/syncTelemetry';
 import { toast } from 'sonner';
 import { User } from '@supabase/supabase-js';
+import type { PendingItem } from '@/lib/pendingQueue';
 
 export const useSupabaseSync = (user: User | null) => {
     const [screens, setScreens] = useState<Screen[]>([]);
@@ -17,10 +18,11 @@ export const useSupabaseSync = (user: User | null) => {
     const [pendingQueueSize, setPendingQueueSize] = useState(0);
 
     const dataAccess = useMemo(() => new SupabaseDataAccess(supabase, { userId: user?.id }), [user]);
-    const makeRequestId = useCallback(() => `req_${Date.now()}_${Math.random().toString(16).slice(2)}`, []);
+    const createRequestId = useCallback(() => makeRequestId(), []);
 
     const logSyncEvent = useCallback(
         (scope: "share" | "layout" | "queue", status: SyncStatus & { requestId?: string; message?: string }) => {
+            /* c8 ignore next 9 */
             if (import.meta.env.DEV) {
                 console.info("[Sync]", {
                     scope,
@@ -39,9 +41,11 @@ export const useSupabaseSync = (user: User | null) => {
     const loadScreens = useCallback(async () => {
         if (!user) return;
         setIsLoading(true);
-        const requestId = makeRequestId();
+        const requestId = createRequestId();
         try {
-            setShareSyncStatus({ state: "pending", requestId, message: "加载模版中" });
+            const pendingStatus = { state: "pending", requestId, message: "加载模版中" };
+            setShareSyncStatus(pendingStatus);
+            logSyncEvent("share", pendingStatus);
             const { data, error } = await supabase
                 .from('screens')
                 .select('*')
@@ -64,100 +68,122 @@ export const useSupabaseSync = (user: User | null) => {
             if (pinsData) {
                 setPinnedIds(pinsData.pinned_ids || []);
             }
-            setShareSyncStatus({ state: "success", requestId, at: Date.now(), message: "已加载" });
+            const successStatus = { state: "success", requestId, at: Date.now(), message: "已加载" };
+            setShareSyncStatus(successStatus);
+            logSyncEvent("share", successStatus);
 
         } catch (error) {
             console.error('Error loading screens:', error);
             toast.error('Failed to load screens');
-            setShareSyncStatus({
+            const errorStatus: SyncStatus = {
                 state: "error",
                 requestId,
                 message: error instanceof Error ? error.message : "加载失败",
-            });
+            };
+            setShareSyncStatus(errorStatus);
+            logSyncEvent("share", errorStatus);
         } finally {
             setIsLoading(false);
         }
-    }, [user, makeRequestId]);
+    }, [user, createRequestId, logSyncEvent]);
 
     const saveScreen = useCallback(async (payload: SaveScreenInput) => {
         if (!user) return null;
         setShareLoading(true);
-        const requestId = makeRequestId();
-        setShareSyncStatus({ state: "pending", requestId, message: "保存中" });
+        const requestId = createRequestId();
+        const pendingStatus = { state: "pending", requestId, message: "保存中" };
+        setShareSyncStatus(pendingStatus);
+        logSyncEvent("share", pendingStatus);
         try {
             const data = await dataAccess.saveScreen(payload);
             setScreens(prev => [...prev, data as unknown as Screen]);
             toast.success("Screen saved");
-            setShareSyncStatus({ state: "success", requestId, at: Date.now(), message: "保存成功" });
+            const successStatus = { state: "success", requestId, at: Date.now(), message: "保存成功" };
+            setShareSyncStatus(successStatus);
+            logSyncEvent("share", successStatus);
             return data;
         } catch (error) {
             console.error("Error saving screen:", error);
             toast.error("Failed to save screen");
-            setShareSyncStatus({
+            const errorStatus: SyncStatus = {
                 state: "error",
                 requestId,
                 message: error instanceof Error ? error.message : "保存失败",
-            });
+            };
+            setShareSyncStatus(errorStatus);
+            logSyncEvent("share", errorStatus);
             throw error;
         } finally {
             setShareLoading(false);
         }
-    }, [user, dataAccess, makeRequestId]);
+    }, [user, dataAccess, createRequestId, logSyncEvent]);
 
     const updateScreen = useCallback(async (params: UpdateScreenInput) => {
         if (!user) return null;
+        const requestId = createRequestId();
         try {
             const data = await dataAccess.updateScreen(params);
             setScreens(prev => prev.map(s => s.id === params.screenId ? (data as unknown as Screen) : s));
+            logSyncEvent("share", { state: "success", requestId, at: Date.now(), message: "更新成功" });
             return data;
         } catch (error) {
             console.error("Error updating screen:", error);
             toast.error("Failed to update screen");
+            logSyncEvent("share", {
+                state: "error",
+                requestId,
+                message: error instanceof Error ? error.message : "更新失败",
+            });
             throw error;
         }
-    }, [user, dataAccess]);
+    }, [user, dataAccess, createRequestId, logSyncEvent]);
 
     const deleteScreen = useCallback(async (id: string) => {
         if (!user) return;
+        const requestId = createRequestId();
         try {
             await dataAccess.deleteScreens({ ids: [id], userId: user.id });
             setScreens(prev => prev.filter(s => s.id !== id));
             toast.success("Screen deleted");
+            logSyncEvent("share", { state: "success", requestId, at: Date.now(), message: "删除成功" });
         } catch (error) {
             console.error("Error deleting screen:", error);
             toast.error("Failed to delete screen");
+            logSyncEvent("share", {
+                state: "error",
+                requestId,
+                message: error instanceof Error ? error.message : "删除失败",
+            });
         }
-    }, [user, dataAccess]);
+    }, [user, dataAccess, createRequestId, logSyncEvent]);
 
     const deleteAllScreens = useCallback(async () => {
         if (!user) return;
+        const requestId = createRequestId();
         try {
             const ids = screens.map(s => s.id);
             await dataAccess.deleteScreens({ ids, userId: user.id });
             setScreens([]);
             toast.success("All screens deleted");
+            logSyncEvent("share", { state: "success", requestId, at: Date.now(), message: "批量删除成功" });
         } catch (error) {
             console.error("Error deleting all screens:", error);
             toast.error("Failed to delete all screens");
+            logSyncEvent("share", {
+                state: "error",
+                requestId,
+                message: error instanceof Error ? error.message : "批量删除失败",
+            });
         }
-    }, [user, screens, dataAccess]);
+    }, [user, screens, dataAccess, createRequestId, logSyncEvent]);
 
     const handleTogglePin = useCallback(async (screenId: string) => {
         if (!user) return;
-        let previous: string[] = [];
-        const nextPinned = (() => {
-            let computed: string[] = [];
-            setPinnedIds((prev) => {
-                previous = prev;
-                if (prev.includes(screenId)) {
-                    computed = prev.filter(id => id !== screenId);
-                } else {
-                    computed = [...prev, screenId];
-                }
-                return computed;
-            });
-            return computed;
-        })();
+        const previous = pinnedIds;
+        const nextPinned = pinnedIds.includes(screenId)
+            ? pinnedIds.filter(id => id !== screenId)
+            : [...pinnedIds, screenId];
+        setPinnedIds(nextPinned);
 
         try {
             await dataAccess.upsertPins({ user_id: user.id, pinned_ids: nextPinned });
@@ -166,7 +192,37 @@ export const useSupabaseSync = (user: User | null) => {
             toast.error("Failed to update pins");
             setPinnedIds(previous);
         }
-    }, [user, dataAccess]);
+    }, [dataAccess, pinnedIds, user]);
+
+    const onQueueItemReplay = useCallback(
+        (item: PendingItem, error: unknown, meta: { attempt: number; delayMs?: number }) => {
+            const recentFailure = item.failures?.[item.failures.length - 1];
+            const requestId = recentFailure?.requestId ?? createRequestId();
+            const message = recentFailure?.message ?? (error instanceof Error ? error.message : String(error));
+            logSyncEvent("queue", {
+                state: "error",
+                requestId,
+                at: item.lastAttemptAt ?? Date.now(),
+                message: `${item.kind} ${item.id} replay failed (attempt ${meta.attempt})${
+                    meta.delayMs ? `, retrying in ${meta.delayMs}ms` : ""
+                }: ${message}`,
+            });
+        },
+        [createRequestId, logSyncEvent],
+    );
+
+    const onQueueItemSuccess = useCallback(
+        (item: PendingItem) => {
+            const requestId = item.failures?.[item.failures.length - 1]?.requestId ?? createRequestId();
+            logSyncEvent("queue", {
+                state: "success",
+                requestId,
+                at: Date.now(),
+                message: `${item.kind} ${item.id} replayed successfully`,
+            });
+        },
+        [createRequestId, logSyncEvent],
+    );
 
     return {
         screens,
@@ -188,6 +244,10 @@ export const useSupabaseSync = (user: User | null) => {
         setLayoutSyncStatus,
         pendingQueueSize,
         setPendingQueueSize,
+        queueReplayCallbacks: {
+            onItemFailure: onQueueItemReplay,
+            onSuccess: onQueueItemSuccess,
+        },
         logSyncEvent,
         dataAccess
     };

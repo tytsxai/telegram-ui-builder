@@ -36,5 +36,18 @@ export default defineConfig(() => ({
       "tests/unit/**/*.{test,spec}.{ts,tsx}"
     ],
     exclude: ["tests/e2e/**"],
+    coverage: {
+      enabled: true,
+      provider: "v8",
+      reporter: ["text", "lcov"],
+      include: ["src/lib/dataAccess.ts", "src/lib/pendingQueue.ts", "src/hooks/chat/useSupabaseSync.ts"],
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 80,
+        statements: 80,
+      },
+      perFile: true,
+    },
   },
 }));

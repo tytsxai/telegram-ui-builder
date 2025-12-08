@@ -1,9 +1,32 @@
 import { z } from 'zod';
+import type { KeyboardRow } from '@/types/telegram';
 
 export const BUTTON_TEXT_MAX = 30;
 export const CALLBACK_DATA_MAX_BYTES = 64;
 export const MAX_BUTTONS_PER_ROW = 8;
 export const MAX_KEYBOARD_ROWS = 100;
+export const CALLBACK_DATA_ERROR_MESSAGE = `callback_data 最多 ${CALLBACK_DATA_MAX_BYTES} 字节`;
+
+export const getByteLength = (value: string) => new TextEncoder().encode(value).length;
+
+const formatKeyboardIssue = (issue: z.ZodIssue) => {
+  const [rowIdx, maybeButtons, btnIdx, field] = issue.path;
+  if (typeof rowIdx === "number") {
+    const rowLabel = `第${rowIdx + 1}行`;
+    if (maybeButtons === "buttons") {
+      if (typeof btnIdx === "number") {
+        const btnLabel = `${rowLabel}第${btnIdx + 1}个按钮`;
+        if (typeof field === "string") {
+          return `${btnLabel} ${issue.message}`;
+        }
+        return `${btnLabel}: ${issue.message}`;
+      }
+      return `${rowLabel} ${issue.message}`;
+    }
+    return `${rowLabel} ${issue.message}`;
+  }
+  return issue.message;
+};
 
 /**
  * 按钮数据验证 Schema
@@ -15,9 +38,9 @@ export const ButtonSchema = z.object({
   callback_data: z.string().optional().refine(
     (val) => {
       if (!val) return true;
-      return new TextEncoder().encode(val).length <= CALLBACK_DATA_MAX_BYTES;
+      return getByteLength(val) <= CALLBACK_DATA_MAX_BYTES;
     },
-    { message: "callback_data最多64字节" }
+    { message: CALLBACK_DATA_ERROR_MESSAGE }
   ),
   linked_screen_id: z.string().optional(),
 });
@@ -27,13 +50,13 @@ export const ButtonSchema = z.object({
  */
 export const KeyboardRowSchema = z.object({
   id: z.string(),
-  buttons: z.array(ButtonSchema).min(1, "每行至少要有一个按钮").max(MAX_BUTTONS_PER_ROW, "每行最多8个按钮"),
+  buttons: z.array(ButtonSchema).min(1, "每行至少要有一个按钮").max(MAX_BUTTONS_PER_ROW, `每行最多${MAX_BUTTONS_PER_ROW}个按钮`),
 });
 
 /**
  * 键盘验证 Schema
  */
-export const KeyboardSchema = z.array(KeyboardRowSchema).max(100, "最多100行按钮");
+export const KeyboardSchema = z.array(KeyboardRowSchema).max(MAX_KEYBOARD_ROWS, `最多${MAX_KEYBOARD_ROWS}行按钮`);
 
 /**
  * 消息内容验证 Schema
@@ -67,30 +90,24 @@ export const FlowExportSchema = z.object({
  * 验证按钮数据
  */
 export const validateButton = (button: unknown) => {
-  try {
-    return ButtonSchema.parse(button);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      const messages = error.errors.map(e => e.message).join(', ');
-      throw new Error(`按钮数据验证失败: ${messages}`);
-    }
-    throw error;
+  const result = ButtonSchema.safeParse(button);
+  if (!result.success) {
+    const messages = result.error.errors.map(e => e.message).join(', ');
+    throw new Error(`按钮数据验证失败: ${messages}`);
   }
+  return result.data;
 };
 
 /**
  * 验证键盘数据
  */
 export const validateKeyboard = (keyboard: unknown) => {
-  try {
-    return KeyboardSchema.parse(keyboard);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      const messages = error.errors.map(e => e.message).join(', ');
-      throw new Error(`键盘数据验证失败: ${messages}`);
-    }
-    throw error;
+  const result = KeyboardSchema.safeParse(keyboard);
+  if (!result.success) {
+    const messages = result.error.errors.map(formatKeyboardIssue).join(', ');
+    throw new Error(`键盘数据验证失败: ${messages}`);
   }
+  return result.data;
 };
 
 /**
@@ -121,6 +138,15 @@ export const validateScreen = (screen: unknown) => {
     }
     throw error;
   }
+};
+
+/**
+ * 收集键盘校验错误（用于内联提示）
+ */
+export const getKeyboardValidationErrors = (keyboard: KeyboardRow[] | unknown) => {
+  const result = KeyboardSchema.safeParse(keyboard);
+  if (result.success) return [];
+  return result.error.errors.map(formatKeyboardIssue);
 };
 
 /**

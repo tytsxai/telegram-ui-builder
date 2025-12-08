@@ -1,8 +1,21 @@
 import type { PostgrestError } from "@supabase/supabase-js";
 
+export type RetryReason = "429" | "5xx" | "network";
+
+export type RetryEvent = {
+  attempt: number;
+  delayMs: number;
+  reason: RetryReason;
+  error: unknown;
+  requestId?: string;
+};
+
 type RetryOptions = {
   attempts?: number;
   backoffMs?: number;
+  jitterRatio?: number;
+  requestId?: string;
+  onRetry?: (event: RetryEvent) => void;
 };
 
 type Op<T> = () => Promise<T>;
@@ -18,9 +31,33 @@ export interface SupabaseErrorLog {
 const wait = (ms: number) => new Promise((res) => setTimeout(res, ms));
 const fallbackRequestId = () => `req_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
+const isNetworkError = (error: unknown) => {
+  if (!error) return false;
+  if (error instanceof TypeError) return true;
+  const message = (error as Error)?.message ?? "";
+  return message.includes("Failed to fetch") || message.includes("NetworkError") || message.includes("ECONN");
+};
+
+export const classifyRetryableError = (error: unknown): RetryReason | null => {
+  const code = (error as Partial<PostgrestError> | undefined)?.code;
+  if (code === "429") return "429";
+  if (typeof code === "string" && code.startsWith("5")) return "5xx";
+  if (isNetworkError(error)) return "network";
+  if (!code) return "network";
+  return null;
+};
+
+export const computeBackoffDelay = (base: number, attemptIndex: number, jitterRatio = 0.25) => {
+  const factor = Math.max(1, Math.pow(2, attemptIndex));
+  const delay = base * factor;
+  const jitter = delay * jitterRatio * Math.random();
+  return Math.round(delay + jitter);
+};
+
 export const withRetry = async <T>(op: Op<T>, opts: RetryOptions = {}): Promise<T> => {
   const attempts = opts.attempts ?? 3;
   const backoff = opts.backoffMs ?? 350;
+  const jitterRatio = opts.jitterRatio ?? 0.25;
 
   let lastError: unknown;
   for (let i = 0; i < attempts; i++) {
@@ -28,12 +65,20 @@ export const withRetry = async <T>(op: Op<T>, opts: RetryOptions = {}): Promise<
       return await op();
     } catch (err) {
       lastError = err;
-      const code = (err as Partial<PostgrestError> | undefined)?.code;
-      const isRetriable = !code || code === "429" || code.startsWith("5");
-      if (!isRetriable) {
+      const reason = classifyRetryableError(err);
+      const isLastAttempt = i === attempts - 1;
+      if (!reason || isLastAttempt) {
         break;
       }
-      await wait(backoff * (i + 1));
+      const delayMs = computeBackoffDelay(backoff, i, jitterRatio);
+      opts.onRetry?.({
+        attempt: i + 1,
+        delayMs,
+        reason,
+        error: err,
+        requestId: opts.requestId,
+      });
+      await wait(delayMs);
     }
   }
   throw lastError;
