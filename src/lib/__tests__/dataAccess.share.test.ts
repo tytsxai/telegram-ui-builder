@@ -10,7 +10,9 @@ type ChainSpies = {
   single: ReturnType<typeof vi.fn>;
 };
 
-const buildClient = (singleResult: any) => {
+type SingleResult = { data: unknown; error: unknown };
+
+const buildClient = (singleResult: SingleResult) => {
   const single = vi.fn().mockResolvedValue(singleResult);
   const select = vi.fn(() => ({ single }));
   const secondEq = vi.fn(() => ({ select }));

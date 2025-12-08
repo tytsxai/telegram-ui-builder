@@ -34,7 +34,7 @@ describe("SupabaseDataAccess", () => {
   it("updates screen scoped by id and user id", async () => {
     const single = vi.fn().mockResolvedValue({ data: { id: "s1", message_content: "updated" }, error: null });
     const select = vi.fn().mockReturnValue({ single });
-    const updateBuilder: any = { eq: vi.fn(), select };
+    const updateBuilder = { eq: vi.fn(), select } as { eq: ReturnType<typeof vi.fn>; select: typeof select };
     updateBuilder.eq.mockReturnValue(updateBuilder);
 
     const update = vi.fn().mockReturnValue(updateBuilder);
@@ -134,7 +134,7 @@ describe("SupabaseDataAccess", () => {
 
   it("surfaces retry callbacks with action context when provided", async () => {
     const onRetry = vi.fn();
-    withRetry.mockImplementationOnce(async (op, options: any) => {
+    withRetry.mockImplementationOnce(async (op, options?: { onRetry?: (event: { attempt: number; error: Error; nextDelayMs: number; requestId: string }) => void }) => {
       options?.onRetry?.({ attempt: 1, error: new Error("first fail"), nextDelayMs: 100, requestId: "req-xyz" });
       return op();
     });
@@ -171,7 +171,7 @@ describe("SupabaseDataAccess", () => {
 
     const updateSingle = vi.fn().mockResolvedValue({ data: null, error: new Error("update failed") });
     const updateSelect = vi.fn().mockReturnValue({ single: updateSingle });
-    const updateBuilder: any = { eq: vi.fn(), select: updateSelect };
+    const updateBuilder = { eq: vi.fn(), select: updateSelect } as { eq: ReturnType<typeof vi.fn>; select: typeof updateSelect };
     updateBuilder.eq.mockReturnValue(updateBuilder);
 
     const client = {
@@ -295,7 +295,7 @@ describe("SupabaseDataAccess", () => {
 
   it("clones a screen when copying for another user", async () => {
     const da = new SupabaseDataAccess({ from: vi.fn() } as unknown as { from: () => unknown });
-    const saveSpy = vi.spyOn(da, "saveScreen").mockResolvedValue({ id: "copy-1" } as unknown as any);
+    const saveSpy = vi.spyOn(da, "saveScreen").mockResolvedValue({ id: "copy-1" } as unknown as { id: string });
 
     await da.copyScreenForUser(
       {
@@ -306,7 +306,7 @@ describe("SupabaseDataAccess", () => {
         is_public: false,
         share_token: null,
         user_id: "user-1",
-      } as any,
+      },
       "user-2",
       { nameSuffix: " copy" }
     );
@@ -333,7 +333,7 @@ describe("SupabaseDataAccess", () => {
     const insert = vi.fn().mockReturnValue({ select });
     const from = vi.fn().mockReturnValue({ insert });
 
-    withRetry.mockImplementationOnce(async (op, opts: any) => {
+    withRetry.mockImplementationOnce(async (op, opts?: { onRetry?: (event: { attempt: number; delayMs?: number; reason?: string; error: Error; requestId: string }) => void }) => {
       opts?.onRetry?.({ attempt: 1, delayMs: 50, reason: "429", error: new Error("rate"), requestId: "req-1" });
       return op();
     });
