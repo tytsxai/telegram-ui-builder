@@ -1,9 +1,15 @@
 import type { SyncStatus } from "@/types/sync";
 
 export type SyncScope = "share" | "layout" | "queue";
+export type SyncTelemetryMeta = {
+  userId?: string | null;
+  action?: string;
+  targetId?: string;
+};
 export type SyncTelemetryEvent = {
   scope: SyncScope;
   status: SyncStatus;
+  meta?: SyncTelemetryMeta;
 };
 
 type Publisher = (event: SyncTelemetryEvent) => void;

@@ -21,7 +21,11 @@ export const useSupabaseSync = (user: User | null) => {
     const createRequestId = useCallback(() => makeRequestId(), []);
 
     const logSyncEvent = useCallback(
-        (scope: "share" | "layout" | "queue", status: SyncStatus & { requestId?: string; message?: string }) => {
+        (
+            scope: "share" | "layout" | "queue",
+            status: SyncStatus & { requestId?: string; message?: string },
+            meta?: { action?: string; targetId?: string },
+        ) => {
             /* c8 ignore next 9 */
             if (import.meta.env.DEV) {
                 console.info("[Sync]", {
@@ -31,11 +35,14 @@ export const useSupabaseSync = (user: User | null) => {
                     message: status.message,
                     at: status.at || Date.now(),
                     pendingQueueSize,
+                    action: meta?.action,
+                    targetId: meta?.targetId,
+                    userId: user?.id,
                 });
             }
-            publishSyncEvent({ scope, status });
+            publishSyncEvent({ scope, status, meta: { ...meta, userId: user?.id } });
         },
-        [pendingQueueSize],
+        [pendingQueueSize, user?.id],
     );
 
     const loadScreens = useCallback(async () => {
@@ -45,7 +52,7 @@ export const useSupabaseSync = (user: User | null) => {
         try {
             const pendingStatus = { state: "pending", requestId, message: "加载模版中" };
             setShareSyncStatus(pendingStatus);
-            logSyncEvent("share", pendingStatus);
+            logSyncEvent("share", pendingStatus, { action: "load_screens" });
             const { data, error } = await supabase
                 .from('screens')
                 .select('*')
@@ -70,7 +77,7 @@ export const useSupabaseSync = (user: User | null) => {
             }
             const successStatus = { state: "success", requestId, at: Date.now(), message: "已加载" };
             setShareSyncStatus(successStatus);
-            logSyncEvent("share", successStatus);
+            logSyncEvent("share", successStatus, { action: "load_screens" });
 
         } catch (error) {
             console.error('Error loading screens:', error);
@@ -81,7 +88,7 @@ export const useSupabaseSync = (user: User | null) => {
                 message: error instanceof Error ? error.message : "加载失败",
             };
             setShareSyncStatus(errorStatus);
-            logSyncEvent("share", errorStatus);
+            logSyncEvent("share", errorStatus, { action: "load_screens" });
         } finally {
             setIsLoading(false);
         }
@@ -93,14 +100,14 @@ export const useSupabaseSync = (user: User | null) => {
         const requestId = createRequestId();
         const pendingStatus = { state: "pending", requestId, message: "保存中" };
         setShareSyncStatus(pendingStatus);
-        logSyncEvent("share", pendingStatus);
+        logSyncEvent("share", pendingStatus, { action: "save_screen" });
         try {
             const data = await dataAccess.saveScreen(payload);
             setScreens(prev => [...prev, data as unknown as Screen]);
             toast.success("Screen saved");
             const successStatus = { state: "success", requestId, at: Date.now(), message: "保存成功" };
             setShareSyncStatus(successStatus);
-            logSyncEvent("share", successStatus);
+            logSyncEvent("share", successStatus, { action: "save_screen", targetId: (data as { id?: string }).id });
             return data;
         } catch (error) {
             console.error("Error saving screen:", error);
@@ -111,7 +118,7 @@ export const useSupabaseSync = (user: User | null) => {
                 message: error instanceof Error ? error.message : "保存失败",
             };
             setShareSyncStatus(errorStatus);
-            logSyncEvent("share", errorStatus);
+            logSyncEvent("share", errorStatus, { action: "save_screen" });
             throw error;
         } finally {
             setShareLoading(false);
@@ -124,7 +131,7 @@ export const useSupabaseSync = (user: User | null) => {
         try {
             const data = await dataAccess.updateScreen(params);
             setScreens(prev => prev.map(s => s.id === params.screenId ? (data as unknown as Screen) : s));
-            logSyncEvent("share", { state: "success", requestId, at: Date.now(), message: "更新成功" });
+            logSyncEvent("share", { state: "success", requestId, at: Date.now(), message: "更新成功" }, { action: "update_screen", targetId: params.screenId });
             return data;
         } catch (error) {
             console.error("Error updating screen:", error);
@@ -133,7 +140,7 @@ export const useSupabaseSync = (user: User | null) => {
                 state: "error",
                 requestId,
                 message: error instanceof Error ? error.message : "更新失败",
-            });
+            }, { action: "update_screen", targetId: params.screenId });
             throw error;
         }
     }, [user, dataAccess, createRequestId, logSyncEvent]);
@@ -145,7 +152,7 @@ export const useSupabaseSync = (user: User | null) => {
             await dataAccess.deleteScreens({ ids: [id], userId: user.id });
             setScreens(prev => prev.filter(s => s.id !== id));
             toast.success("Screen deleted");
-            logSyncEvent("share", { state: "success", requestId, at: Date.now(), message: "删除成功" });
+            logSyncEvent("share", { state: "success", requestId, at: Date.now(), message: "删除成功" }, { action: "delete_screen", targetId: id });
         } catch (error) {
             console.error("Error deleting screen:", error);
             toast.error("Failed to delete screen");
@@ -153,7 +160,7 @@ export const useSupabaseSync = (user: User | null) => {
                 state: "error",
                 requestId,
                 message: error instanceof Error ? error.message : "删除失败",
-            });
+            }, { action: "delete_screen", targetId: id });
         }
     }, [user, dataAccess, createRequestId, logSyncEvent]);
 
@@ -165,7 +172,7 @@ export const useSupabaseSync = (user: User | null) => {
             await dataAccess.deleteScreens({ ids, userId: user.id });
             setScreens([]);
             toast.success("All screens deleted");
-            logSyncEvent("share", { state: "success", requestId, at: Date.now(), message: "批量删除成功" });
+            logSyncEvent("share", { state: "success", requestId, at: Date.now(), message: "批量删除成功" }, { action: "delete_all_screens" });
         } catch (error) {
             console.error("Error deleting all screens:", error);
             toast.error("Failed to delete all screens");
@@ -173,7 +180,7 @@ export const useSupabaseSync = (user: User | null) => {
                 state: "error",
                 requestId,
                 message: error instanceof Error ? error.message : "批量删除失败",
-            });
+            }, { action: "delete_all_screens" });
         }
     }, [user, screens, dataAccess, createRequestId, logSyncEvent]);
 
@@ -206,7 +213,7 @@ export const useSupabaseSync = (user: User | null) => {
                 message: `${item.kind} ${item.id} replay failed (attempt ${meta.attempt})${
                     meta.delayMs ? `, retrying in ${meta.delayMs}ms` : ""
                 }: ${message}`,
-            });
+            }, { action: "queue_replay", targetId: item.id });
         },
         [createRequestId, logSyncEvent],
     );
@@ -219,7 +226,7 @@ export const useSupabaseSync = (user: User | null) => {
                 requestId,
                 at: Date.now(),
                 message: `${item.kind} ${item.id} replayed successfully`,
-            });
+            }, { action: "queue_replay", targetId: item.id });
         },
         [createRequestId, logSyncEvent],
     );

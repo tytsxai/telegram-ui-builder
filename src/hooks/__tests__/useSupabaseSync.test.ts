@@ -397,10 +397,13 @@ describe("useSupabaseSync", () => {
       result.current.logSyncEvent("layout", { state: "pending", requestId: "req-123", message: "layout sync" });
     });
 
-    expect(publishSyncEvent).toHaveBeenCalledWith({
-      scope: "layout",
-      status: expect.objectContaining({ state: "pending", requestId: "req-123", message: "layout sync" }),
-    });
+    expect(publishSyncEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "layout",
+        status: expect.objectContaining({ state: "pending", requestId: "req-123", message: "layout sync" }),
+        meta: expect.objectContaining({ userId: mockUser.id }),
+      }),
+    );
 
     consoleSpy.mockRestore();
   });

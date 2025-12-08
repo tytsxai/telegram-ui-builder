@@ -12,6 +12,9 @@ if (!getSyncTelemetryPublisher()) {
         requestId: event.status.requestId,
         message: event.status.message,
         at: event.status.at || Date.now(),
+        userId: event.meta?.userId,
+        action: event.meta?.action,
+        targetId: event.meta?.targetId,
       });
     }
   });

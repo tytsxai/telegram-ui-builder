@@ -23,6 +23,8 @@ import type { Json, TablesUpdate } from "@/integrations/supabase/types";
 import type { SaveScreenInput } from "@/lib/dataAccess";
 import type { KeyboardButton, KeyboardRow, Screen } from "@/types/telegram";
 import { MessageBubbleHandle } from "@/components/MessageBubble";
+import { makeRequestId } from "@/types/sync";
+import { recordAuditEvent } from "@/lib/auditTrail";
 
 type ImportInlineButton = Partial<KeyboardButton> & { text?: string };
 type ImportInlineKeyboard = ImportInlineButton[][];
@@ -704,14 +706,28 @@ export const useBuilderStore = () => {
       setIsImporting(true);
       const data = JSON.parse(importJSON);
       if (data.text) setMessageContent(data.text);
+      recordAuditEvent({
+        action: "import_json",
+        status: "success",
+        userId: user?.id,
+        targetId: currentScreenId ?? null,
+        message: "Import dialog applied JSON",
+      });
       toast.success("Imported successfully");
       setImportDialogOpen(false);
     } catch (e) {
+      recordAuditEvent({
+        action: "import_json",
+        status: "error",
+        userId: user?.id,
+        targetId: currentScreenId ?? null,
+        message: "Import failed",
+      });
       toast.error("Invalid JSON");
     } finally {
       setIsImporting(false);
     }
-  }, [importJSON, setMessageContent]);
+  }, [currentScreenId, importJSON, setImportDialogOpen, setIsImporting, setMessageContent, user?.id]);
 
   const handleImportFileSelect = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -798,11 +814,25 @@ export const useBuilderStore = () => {
       }
 
       setJsonSyncError(null);
+      recordAuditEvent({
+        action: "import_json",
+        status: "success",
+        userId: user?.id,
+        targetId: currentScreenId ?? null,
+        message: "Inline JSON applied",
+      });
       toast.success("Applied JSON changes");
     } catch (e) {
+      recordAuditEvent({
+        action: "import_json",
+        status: "error",
+        userId: user?.id,
+        targetId: currentScreenId ?? null,
+        message: "Invalid inline JSON",
+      });
       setJsonSyncError("Invalid JSON");
     }
-  }, [editableJSON, setKeyboard, setMediaUrl, setMessageContent, setMessageType, setParseMode]);
+  }, [currentScreenId, editableJSON, setKeyboard, setMediaUrl, setMessageContent, setMessageType, setParseMode, user?.id]);
 
   const handleCreateLink = useCallback((sourceId: string, targetId: string) => {
     setScreens((prev) => {
@@ -871,17 +901,31 @@ export const useBuilderStore = () => {
   }, [setScreens]);
 
   const withShareStatus = useCallback(
-    async (message: string, op: () => Promise<Screen | null>) => {
-      const requestId = `share_${Date.now()}`;
+    async (
+      message: string,
+      op: () => Promise<Screen | null>,
+      meta?: { action?: "share_publish" | "share_rotate" | "share_revoke"; targetId?: string },
+    ) => {
+      const requestId = makeRequestId();
       const pendingStatus = { state: "pending" as const, requestId, message };
       setShareLoading(true);
       setShareSyncStatus(pendingStatus);
-      logSyncEvent("share", pendingStatus);
+      logSyncEvent("share", pendingStatus, { action: meta?.action ?? "share", targetId: meta?.targetId });
       try {
         const result = await op();
         const successStatus = { state: "success" as const, requestId, at: Date.now(), message: "已同步" };
         setShareSyncStatus(successStatus);
-        logSyncEvent("share", successStatus);
+        logSyncEvent("share", successStatus, { action: meta?.action ?? "share", targetId: meta?.targetId });
+        if (meta?.action) {
+          recordAuditEvent({
+            action: meta.action,
+            status: "success",
+            targetId: meta.targetId,
+            userId: user?.id,
+            requestId,
+            message,
+          });
+        }
         return result;
       } catch (error) {
         const errorStatus = {
@@ -890,13 +934,23 @@ export const useBuilderStore = () => {
           message: error instanceof Error ? error.message : "分享失败",
         };
         setShareSyncStatus(errorStatus);
-        logSyncEvent("share", errorStatus);
+        logSyncEvent("share", errorStatus, { action: meta?.action ?? "share", targetId: meta?.targetId });
+        if (meta?.action) {
+          recordAuditEvent({
+            action: meta.action,
+            status: "error",
+            targetId: meta.targetId,
+            userId: user?.id,
+            requestId,
+            message: errorStatus.message,
+          });
+        }
         throw error;
       } finally {
         setShareLoading(false);
       }
     },
-    [logSyncEvent, setShareLoading, setShareSyncStatus],
+    [logSyncEvent, setShareLoading, setShareSyncStatus, user?.id],
   );
 
   const handleCopyOrShare = useCallback(async () => {
@@ -921,7 +975,7 @@ export const useBuilderStore = () => {
         const updated = await dataAccess.publishShareToken({ screenId: entry.id, token }) as unknown as Screen;
         updateShareState(updated);
         return updated;
-      });
+      }, { action: "share_publish", targetId: entry.id });
       const tokenToUse = result?.share_token ?? entry.share_token;
       if (!tokenToUse) {
         toast.error("未能生成分享链接");
@@ -949,7 +1003,7 @@ export const useBuilderStore = () => {
         const next = await dataAccess.rotateShareToken(entry.id, token) as unknown as Screen;
         updateShareState(next);
         return next;
-      });
+      }, { action: "share_rotate", targetId: entry.id });
       const tokenToUse = updated?.share_token ?? token;
       await navigator.clipboard.writeText(buildShareUrl(tokenToUse));
       toast.success("链接已刷新，旧链接已失效");
@@ -972,7 +1026,7 @@ export const useBuilderStore = () => {
         const updated = await dataAccess.revokeShareToken(entry.id) as unknown as Screen;
         updateShareState(updated);
         return updated;
-      });
+      }, { action: "share_revoke", targetId: entry.id });
       toast.success("已取消公开");
     } catch (error) {
       console.error("Error revoking share link:", error);
