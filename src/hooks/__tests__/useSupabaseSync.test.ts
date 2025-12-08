@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { publishSyncEvent } from "@/lib/syncTelemetry";
 import { useSupabaseSync } from "../chat/useSupabaseSync";
 import type { Screen } from "@/types/telegram";
+import type { PendingItem, PendingFailure } from "@/lib/pendingQueue";
 
 const toast = vi.hoisted(() => ({
   success: vi.fn(),
@@ -74,6 +75,33 @@ describe("useSupabaseSync", () => {
     });
 
     Object.values(toast).forEach((fn) => fn.mockReset());
+  });
+
+  const makePendingSave = (overrides: Partial<PendingItem> = {}): PendingItem => ({
+    id: "pending-save",
+    kind: "save",
+    payload: {
+      user_id: mockUser.id,
+      name: "Mock",
+      message_content: "m",
+      keyboard: [],
+      is_public: false,
+    },
+    createdAt: Date.now(),
+    attempts: 0,
+    ...overrides,
+  });
+
+  const makePendingUpdate = (overrides: Partial<PendingItem> = {}): PendingItem => ({
+    id: "pending-update",
+    kind: "update",
+    payload: {
+      id: "screen-1",
+      update: { message_content: "m", keyboard: [] },
+    },
+    createdAt: Date.now(),
+    attempts: 0,
+    ...overrides,
   });
 
   it("loads screens and pinned ids for the current user", async () => {
@@ -379,18 +407,17 @@ describe("useSupabaseSync", () => {
 
   it("exposes queue replay callbacks that publish telemetry", () => {
     const { result } = renderHook(() => useSupabaseSync(mockUser));
-    const failure = { requestId: "req-queue", message: "network fail", at: Date.now() };
-    const pendingItem = {
+    const failure: PendingFailure = { requestId: "req-queue", message: "network fail", at: Date.now() };
+    const pendingItem = makePendingSave({
       id: "pending-1",
-      kind: "save" as const,
       attempts: 1,
       lastAttemptAt: failure.at,
       lastError: failure.message,
       failures: [failure],
-    };
+    });
 
     act(() => {
-      result.current.queueReplayCallbacks.onItemFailure?.(pendingItem as any, new Error("network"), { attempt: 2, delayMs: 50 });
+      result.current.queueReplayCallbacks.onItemFailure?.(pendingItem, new Error("network"), { attempt: 2, delayMs: 50 });
     });
 
     expect(publishSyncEvent).toHaveBeenCalledWith(
@@ -404,7 +431,7 @@ describe("useSupabaseSync", () => {
     );
 
     act(() => {
-      result.current.queueReplayCallbacks.onSuccess?.(pendingItem as any);
+      result.current.queueReplayCallbacks.onSuccess?.(pendingItem);
     });
 
     expect(publishSyncEvent).toHaveBeenCalledWith(
@@ -417,16 +444,15 @@ describe("useSupabaseSync", () => {
 
   it("publishes queue telemetry when no previous failures exist", () => {
     const { result } = renderHook(() => useSupabaseSync(mockUser));
-    const pendingItem = {
+    const pendingItem = makePendingSave({
       id: "pending-2",
-      kind: "save" as const,
       attempts: 0,
       lastAttemptAt: 123,
       failures: [],
-    };
+    });
 
     act(() => {
-      result.current.queueReplayCallbacks.onItemFailure?.(pendingItem as any, "offline", { attempt: 1 });
+      result.current.queueReplayCallbacks.onItemFailure?.(pendingItem, "offline", { attempt: 1 });
     });
 
     expect(publishSyncEvent).toHaveBeenCalledWith(
@@ -440,7 +466,7 @@ describe("useSupabaseSync", () => {
     );
 
     act(() => {
-      result.current.queueReplayCallbacks.onSuccess?.(pendingItem as any);
+      result.current.queueReplayCallbacks.onSuccess?.(pendingItem);
     });
 
     expect(publishSyncEvent).toHaveBeenCalledWith(
@@ -456,15 +482,14 @@ describe("useSupabaseSync", () => {
 
   it("publishes queue retries without delay metadata", () => {
     const { result } = renderHook(() => useSupabaseSync(mockUser));
+    const pending = makePendingUpdate({
+      id: "pending-2",
+      lastAttemptAt: Date.now(),
+      failures: [],
+    });
     act(() => {
       result.current.queueReplayCallbacks.onItemFailure?.(
-        {
-          id: "pending-2",
-          kind: "update",
-          attempts: 0,
-          lastAttemptAt: Date.now(),
-          failures: [],
-        } as any,
+        pending,
         new Error("transient"),
         { attempt: 1 }
       );
@@ -484,14 +509,14 @@ describe("useSupabaseSync", () => {
   it("defaults queue telemetry timestamps and omits retry delay copy when missing", () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1234);
     const { result } = renderHook(() => useSupabaseSync(mockUser));
+    const pending = makePendingUpdate({
+      id: "pending-4",
+      attempts: 2,
+      failures: [],
+    });
     act(() => {
       result.current.queueReplayCallbacks.onItemFailure?.(
-        {
-          id: "pending-4",
-          kind: "update",
-          attempts: 2,
-          failures: [],
-        } as any,
+        pending,
         "offline",
         { attempt: 2 },
       );
@@ -505,13 +530,10 @@ describe("useSupabaseSync", () => {
 
   it("assigns request ids for queue success without prior failures", () => {
     const { result } = renderHook(() => useSupabaseSync(mockUser));
+    const pending = makePendingSave({ id: "pending-3", failures: [] });
     act(() => {
       result.current.queueReplayCallbacks.onSuccess?.(
-        {
-          id: "pending-3",
-          kind: "save",
-          failures: [],
-        } as any,
+        pending,
       );
     });
 
