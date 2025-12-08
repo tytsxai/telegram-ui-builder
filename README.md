@@ -33,6 +33,12 @@ The repo includes a `.env` file with a default Supabase project for previews. To
 - `npm run test` — run unit tests (Vitest + jsdom)
 - `npm run test:e2e` — run Playwright E2E suite (requires dev server env)
 
+## Workbench guide
+- **Entry & share**: Pick an entry screen from the left sidebar before exporting/sharing; sharing is blocked if the entry is missing or buttons point to deleted screens. Use “生成/复制入口链接” to publish and copy, “刷新链接” to rotate the token, and “取消公开” to revoke. Public pages live at `/share/:token` with author/time meta and a “复制并编辑” action for signed-in users.
+- **Template library**: Click the `模板库` button in the canvas toolbar to load curated starters from `public/templates/*.json`. Cards auto-validate keyboard/message content; use the refresh icon if the list fails to load. On first run, the onboarding banner guides you to open the library.
+- **Keyboard editor**: Inline edit or drag rows/buttons; double-click to rename quickly. Open button settings to choose callback/URL/link targets with byte counters (64B limit) and auto text suffixes when linking screens. Row and button count limits are enforced with warnings, and overflow shows a red hint instead of breaking layout.
+- **Flow diagram**: Open “查看关系图” from the left sidebar to inspect links. Toggle layout direction, mind-map, focus on current node only, hide isolated nodes, or show button labels. Right-click nodes to set entry or delete, drag to rearrange, and connect nodes to create links. “保存布局” persists positions locally and to Supabase when signed in; “重置位置” clears saved layouts in both places and reverts to auto layout.
+
 ## Editing options
 - **Local IDE**: Clone the repo, install dependencies, and develop with your preferred tools.
 - **Edit on GitHub**: Use the GitHub UI to edit files directly and commit changes.

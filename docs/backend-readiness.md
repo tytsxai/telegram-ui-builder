@@ -14,6 +14,7 @@ Target: keep app and Supabase in sync, with strict RLS and typed client coverage
 - [ ] Run `npm run build` to catch drift; fail CI on type errors or unknown tables.
 - [ ] Command (requires Supabase CLI + env): `SUPABASE_PROJECT_REF=<ref> npm run supabase:types`
 - [ ] Remove any `fromUnsafe` or untyped `.from(<string>)` usages (none remain).
+- [ ] Route schema changes through `lib/dataAccess.ts` first (single gateway for Supabase CRUD + retry) and then `useSupabaseSync`; queue payloads (`pending_ops_v2_<userId>`) rely on the same shapes.
 
 ## Environment
 - [ ] Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` for each environment (dev/stage/prod); avoid sharing anon keys across envs.
@@ -25,9 +26,10 @@ Target: keep app and Supabase in sync, with strict RLS and typed client coverage
 - [ ] Cloud persistence: verify `user_pins` and `screen_layouts` read/write succeed under RLS; test offline fallback to local cache.
 
 ## Reliability & Observability
-- [ ] Add retry/backoff for Supabase 429/network errors (save, pin, layout sync).
+- [ ] Add retry/backoff for Supabase 429/network errors (save, pin, layout sync) — current `dataAccess` uses `supabaseRetry`, keep it single-writer.
 - [ ] Log structured errors (operation, table, user_id, status) for failed Supabase calls.
 - [ ] Add audit-friendly events for share create/rotate/unshare.
+- [ ] Document offline queue contract: `pending_ops_v2_<userId>` in `localStorage`, dedupes updates per screen; version bumps require migration, replay test, and alignment with `SupabaseDataAccess` behavior.
 
 ## Testing
 - [ ] Unit: `lib/referenceChecker`, `lib/validation`, `useUndoRedo`, import/export transforms.
