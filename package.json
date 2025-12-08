@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "supabase:types": "npx supabase@latest gen types typescript --project-id $SUPABASE_PROJECT_REF --schema public > src/integrations/supabase/types.ts",
     "check:supabase-types": "npm run supabase:types && git diff --exit-code -- src/integrations/supabase/types.ts",
+    "smoke:rls": "node scripts/supabase/rls-smoke.mjs",
     "test": "vitest run",
     "test:watch": "vitest watch",
     "test:e2e": "playwright test"
