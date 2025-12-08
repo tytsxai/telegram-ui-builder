@@ -15,6 +15,12 @@
 - Replay triggered when `isOffline` flips false; UI badge shows pending state.
 - Layout sync: `TemplateFlowDiagram` emits `onLayoutSync` status; share flows emit status in center toolbar badges.
 
+## Workbench Operations (entry/share, templates, keyboard, diagram)
+- Entry + sharing: Entry choice is stored in `localStorage` (`telegram_ui_entry_screen`) and is required for exports/sharing; share/export is blocked if entry is missing or any button links to a deleted screen. Sidebar actions map to Supabase ops: “生成/复制入口链接” (publish + copy), “刷新链接” (rotate `share_token`), “取消公开” (revoke). Public page `/share/:token` shows author/time and lets signed-in users copy into their account; badges carry requestId when share calls fail.
+- Template library: Canvas toolbar button `模板库` fetches `public/templates/library.json` → individual template JSON files. If loading fails, use the refresh icon; verify the static files shipped with the build. Templates are pre-validated and mark onboarding as complete when applied.
+- Keyboard guardrails: Inline editor enforces per-row/per-keyboard limits and 64B callback_data; red hint appears instead of saving invalid payloads. The button dialog validates URL vs callback vs link targets, autogenerates `goto_screen_<id>` callback_data for links, and appends a readable suffix to button text. Use this dialog to clear byte overflows before retrying saves.
+- Flow diagram + layout persistence: “查看关系图” provides filters (focus current 2-hop, hide isolated, show button labels, mind map, compact) and right-click actions (edit, set entry, delete). “保存布局” writes positions to localStorage (`diagram_positions_<user>`) and Supabase `screen_layouts` with debounced autosave; “重置位置” clears both and reverts to Dagre auto layout. Connect nodes to create links; layout badge in the toolbar reflects sync state.
+
 ## Rate Limit Guidance
 - Batch writes where possible (layout upsert uses bulk; import uses bulk insert).
 - Avoid rapid save spam: debounce UI triggers; queue writes while offline.

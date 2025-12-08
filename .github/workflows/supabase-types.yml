@@ -8,6 +8,10 @@ on:
 jobs:
   gen-types:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,24 +22,17 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install Supabase CLI
-        run: |
-          curl -sSf https://supabase.com/cli/install | sh -s -- -b /usr/local/bin
-          echo "/usr/local/bin" >> $GITHUB_PATH
-          supabase --version
-
       - name: Install dependencies
         run: npm ci
 
       - name: Login Supabase
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: npx supabase login --token "$SUPABASE_ACCESS_TOKEN"
+        run: npx supabase@latest login --token "$SUPABASE_ACCESS_TOKEN"
 
-      - name: Generate types
-        env:
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-        run: SUPABASE_PROJECT_REF=$SUPABASE_PROJECT_REF npm run supabase:types
+      - name: Supabase types drift check
+        run: npm run check:supabase-types
+        continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Lint & build
         run: npm run lint && npm run build
@@ -45,6 +42,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add src/integrations/supabase/types.ts
+          git add src/integrations/supabase/types.ts scripts/supabase/schema.sql supabase/migrations
           git commit -m "chore: sync supabase types" || true
           git push
