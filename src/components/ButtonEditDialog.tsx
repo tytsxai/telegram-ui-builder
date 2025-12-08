@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import type { KeyboardButton, Screen } from "@/types/telegram";
-import { BUTTON_TEXT_MAX, CALLBACK_DATA_MAX_BYTES } from "@/lib/validation";
+import { BUTTON_TEXT_MAX, CALLBACK_DATA_MAX_BYTES, CALLBACK_DATA_ERROR_MESSAGE, getByteLength } from "@/lib/validation";
 import { toast } from "sonner";
 
 export type ButtonValidationErrors = { text?: string; callback?: string; url?: string; link?: string };
@@ -16,7 +16,7 @@ export const validateButtonFields = (
   actionType: "callback" | "url" | "link"
 ): ButtonValidationErrors => {
   const nextErrors: ButtonValidationErrors = {};
-  const calcBytes = (value: string) => new TextEncoder().encode(value).length;
+  const calcBytes = getByteLength;
   const textLength = button.text?.length ?? 0;
 
   if (!button.text.trim()) {
@@ -42,7 +42,7 @@ export const validateButtonFields = (
       if (!value.trim() && actionType === "callback") {
         nextErrors.callback = "Callback data 不能为空";
       } else if (calcBytes(value) > CALLBACK_DATA_MAX_BYTES) {
-        nextErrors.callback = "callback_data 最多 64 字节";
+        nextErrors.callback = CALLBACK_DATA_ERROR_MESSAGE;
       }
     }
 
@@ -73,9 +73,10 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
     setErrors({});
   }, [button]);
 
-  const calcBytes = (value: string) => new TextEncoder().encode(value).length;
+  const calcBytes = getByteLength;
   const textLength = editedButton.text?.length ?? 0;
   const callbackBytes = calcBytes(editedButton.callback_data ?? "");
+  const callbackError = errors.callback || (actionType === "callback" && callbackBytes > CALLBACK_DATA_MAX_BYTES ? CALLBACK_DATA_ERROR_MESSAGE : undefined);
 
   // 智能按钮命名：当选择链接模板时，自动添加后缀
   const handleScreenSelect = (screenId: string) => {
@@ -182,13 +183,13 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
                 placeholder="button_action"
                 value={editedButton.callback_data || ""}
                 onChange={(e) => setEditedButton({ ...editedButton, callback_data: e.target.value })}
-                className={errors.callback ? "border-destructive" : undefined}
+                className={callbackError ? "border-destructive" : undefined}
               />
               <div className="flex items-center justify-between text-xs">
-                <span className={errors.callback ? "text-destructive" : "text-muted-foreground"}>
-                  {errors.callback ?? "用于识别按钮点击的数据，会发送给机器人"}
+                <span className={callbackError ? "text-destructive" : "text-muted-foreground"}>
+                  {callbackError ?? "用于识别按钮点击的数据，会发送给机器人"}
                 </span>
-                <span className="text-muted-foreground">{callbackBytes}/64B</span>
+                <span className={callbackError ? "text-destructive" : "text-muted-foreground"}>{callbackBytes}/{CALLBACK_DATA_MAX_BYTES}B</span>
               </div>
             </TabsContent>
             

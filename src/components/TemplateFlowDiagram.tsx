@@ -18,9 +18,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
-import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown, Maximize2, Minimize2, Network, Edit, Trash2, PlayCircle } from 'lucide-react';
+import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown, Maximize2, Minimize2, Network, Edit, Trash2, PlayCircle, Star, Filter, Crosshair, RefreshCcw } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
-import { findAllCircularReferences, generateRelationshipGraph } from '@/lib/referenceChecker';
+import { findAllCircularReferences, findCircularEdges, generateRelationshipGraph } from '@/lib/referenceChecker';
 import dagre from '@dagrejs/dagre';
 import { SupabaseDataAccess } from '@/lib/dataAccess';
 import { supabase } from '@/integrations/supabase/client';
@@ -35,6 +35,8 @@ interface TemplateFlowDiagramProps {
   onOpenChange: (open: boolean) => void;
   onScreenClick?: (screenId: string) => void;
   userId?: string;
+  entryScreenId?: string | null;
+  pinnedIds?: string[];
   onLayoutSync?: (status: SyncStatus) => void;
   onSetEntry?: (screenId: string) => void;
   onDeleteScreen?: (screenId: string) => void;
@@ -64,6 +66,8 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   onOpenChange,
   onScreenClick,
   userId,
+  entryScreenId,
+  pinnedIds,
   onLayoutSync,
   onSetEntry,
   onDeleteScreen,
@@ -92,7 +96,12 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   const autoOrientedRef = useRef(false);
   const PREF_KEY = 'diagram_pref_mindmap';
   const POS_KEY = `diagram_positions_${userId || 'anon'}`;
+  const ENTRY_KEY = 'telegram_ui_entry_screen';
   const [useSavedPositions, setUseSavedPositions] = useState<boolean>(false);
+  const [entryId, setEntryId] = useState<string | null>(entryScreenId ?? null);
+  const [pinnedState, setPinnedState] = useState<string[]>(pinnedIds ?? []);
+  const [entryFilterOnly, setEntryFilterOnly] = useState<boolean>(false);
+  const [pinnedFilterOnly, setPinnedFilterOnly] = useState<boolean>(false);
   const savedPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const [layoutSavedAt, setLayoutSavedAt] = useState<number | null>(null);
   const [layoutSaving, setLayoutSaving] = useState(false);
@@ -107,6 +116,51 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     };
   }, []);
 
+  // 同步入口/置顶信息（优先使用外部传入，其次使用本地/云端）
+  useEffect(() => {
+    if (typeof entryScreenId !== "undefined") {
+      setEntryId(entryScreenId ?? null);
+      return;
+    }
+    try {
+      const stored = localStorage.getItem(ENTRY_KEY);
+      setEntryId(stored || null);
+    } catch (e) {
+      void e;
+    }
+  }, [entryScreenId, open, ENTRY_KEY]);
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === ENTRY_KEY) {
+        setEntryId(event.newValue || null);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [ENTRY_KEY]);
+
+  useEffect(() => {
+    if (pinnedIds) {
+      setPinnedState(pinnedIds);
+    }
+  }, [pinnedIds]);
+
+  useEffect(() => {
+    const fetchPinned = async () => {
+      if (!open || !userId || (pinnedIds && pinnedIds.length > 0)) return;
+      try {
+        const cloudPins = await dataAccess.fetchPins({ userId });
+        if (Array.isArray(cloudPins) && cloudPins.length > 0) {
+          setPinnedState(cloudPins);
+        }
+      } catch (e) {
+        void e;
+      }
+    };
+    void fetchPinned();
+  }, [open, userId, pinnedIds, dataAccess]);
+
   // 预计算循环集合
   const cycleNodeIds = useMemo(() => {
     const cycles = findAllCircularReferences(screens);
@@ -114,6 +168,48 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     cycles.forEach(c => c.path.forEach(id => ids.add(id)));
     return ids;
   }, [screens]);
+  const cycleEdgeIds = useMemo(() => findCircularEdges(screens), [screens]);
+
+  const pinnedSet = useMemo(() => new Set(pinnedIds ?? pinnedState), [pinnedIds, pinnedState]);
+  const entrySet = useMemo(() => {
+    const set = new Set<string>();
+    if (entryId) set.add(entryId);
+    return set;
+  }, [entryId]);
+  const entryAnchors = useMemo(() => {
+    const idSet = new Set(screens.map((s) => s.id));
+    const incoming = new Set<string>();
+    const outgoing = new Set<string>();
+    screens.forEach((screen) => {
+      screen.keyboard.forEach((row) => {
+        row.buttons.forEach((btn) => {
+          if (btn.linked_screen_id && idSet.has(btn.linked_screen_id)) {
+            incoming.add(btn.linked_screen_id);
+            outgoing.add(screen.id);
+          }
+        });
+      });
+    });
+    const roots = new Set<string>(entrySet);
+    screens.forEach((screen) => {
+      if (!incoming.has(screen.id) && outgoing.has(screen.id)) {
+        roots.add(screen.id);
+      }
+    });
+    return roots;
+  }, [screens, entrySet]);
+
+  useEffect(() => {
+    if (entryAnchors.size === 0 && entryFilterOnly) {
+      setEntryFilterOnly(false);
+    }
+  }, [entryAnchors, entryFilterOnly]);
+
+  useEffect(() => {
+    if (pinnedSet.size === 0 && pinnedFilterOnly) {
+      setPinnedFilterOnly(false);
+    }
+  }, [pinnedSet, pinnedFilterOnly]);
 
   // 构建节点和边（改进：结构化分层布局 + 循环高亮 + 心智图模式）
   const { nodes: initialNodes, edges: initialEdges, edgeHints, matchIds } = useMemo(() => {
@@ -122,95 +218,83 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     const screenMap = new Map(screens.map(s => [s.id, s]));
     const edgeHintMap = new Map<string, string>();
 
-    // 检测孤立节点和入口节点
-    const hasIncomingEdge = new Set<string>();
-    const hasOutgoingEdge = new Set<string>();
+    const outgoing = new Map<string, Set<string>>();
+    const incoming = new Map<string, Set<string>>();
 
-    // 第一遍：收集所有引用关系
-    screens.forEach(screen => {
-      screen.keyboard.forEach(row => {
-        row.buttons.forEach(btn => {
+    screens.forEach((screen) => {
+      const out = new Set<string>();
+      screen.keyboard.forEach((row) => {
+        row.buttons.forEach((btn) => {
           if (btn.linked_screen_id && screenMap.has(btn.linked_screen_id)) {
-            hasOutgoingEdge.add(screen.id);
-            hasIncomingEdge.add(btn.linked_screen_id);
+            out.add(btn.linked_screen_id);
           }
         });
       });
-    });
-
-    // 准备邻接表
-    const outgoingAll = new Map<string, Set<string>>();
-    const incomingAll = new Map<string, Set<string>>();
-    screens.forEach(s => {
-      const out = new Set<string>();
-      s.keyboard.forEach(r => r.buttons.forEach(b => b.linked_screen_id && out.add(b.linked_screen_id)));
-      outgoingAll.set(s.id, out);
-      out.forEach(t => {
-        const set = incomingAll.get(t) || new Set<string>();
-        set.add(s.id);
-        incomingAll.set(t, set);
+      outgoing.set(screen.id, out);
+      out.forEach((targetId) => {
+        const prev = incoming.get(targetId) || new Set<string>();
+        prev.add(screen.id);
+        incoming.set(targetId, prev);
       });
     });
 
-    // 计算邻接表，供“只看当前相关”过滤
-    const outgoing = new Map<string, Set<string>>();
-    const incoming = new Map<string, Set<string>>();
-    screens.forEach(s => {
-      const out = new Set<string>();
-      s.keyboard.forEach(r => r.buttons.forEach(b => b.linked_screen_id && out.add(b.linked_screen_id)));
-      outgoing.set(s.id, out);
-      out.forEach(t => {
-        const set = incoming.get(t) || new Set<string>();
-        set.add(s.id);
-        incoming.set(t, set);
-      });
-    });
+    const expandAround = (roots: Set<string>, depthLimit: number) => {
+      const keep = new Set<string>();
+      const queue: Array<{ id: string; depth: number }> = Array.from(roots).map((id) => ({ id, depth: 0 }));
+      while (queue.length) {
+        const { id, depth } = queue.shift()!;
+        if (keep.has(id)) continue;
+        keep.add(id);
+        if (depth >= depthLimit) continue;
+        outgoing.get(id)?.forEach((next) => queue.push({ id: next, depth: depth + 1 }));
+        incoming.get(id)?.forEach((prev) => queue.push({ id: prev, depth: depth + 1 }));
+      }
+      return keep;
+    };
 
-    // 若启用只看当前相关，确定需要保留的节点集合（上下游两层）
-    const visibleNodes = new Set<string>();
+    const entryRoots = new Set<string>(entryAnchors);
+
+    const entryScope = entryRoots.size ? expandAround(entryRoots, 1) : new Set<string>();
+    const pinnedScope = pinnedSet.size ? expandAround(pinnedSet, 1) : new Set<string>();
+    const focusScope = new Set<string>();
     if (focusCurrent && currentScreenId) {
-      const depthLimit = 2;
-      const visit = (start: string, dir: 'out' | 'in') => {
-        const q: Array<{ id: string; d: number }> = [{ id: start, d: 0 }];
-        const seen = new Set<string>([start]);
-        while (q.length) {
-          const { id, d } = q.shift()!;
-          visibleNodes.add(id);
-          if (d >= depthLimit) continue;
-          const nexts = dir === 'out' ? outgoing.get(id) : incoming.get(id);
-          nexts?.forEach(n => {
-            if (!seen.has(n)) {
-              seen.add(n);
-              q.push({ id: n, d: d + 1 });
-            }
-          });
-        }
-      };
-      visit(currentScreenId, 'out');
-      visit(currentScreenId, 'in');
+      expandAround(new Set([currentScreenId]), 2).forEach((id) => focusScope.add(id));
     }
 
-    // 预先计算搜索匹配
     const lowerQuery = searchQuery.trim().toLowerCase();
     const matched = new Set<string>();
     if (lowerQuery) {
-      screens.forEach(s => {
-        if ((s.name || '').toLowerCase().includes(lowerQuery)) matched.add(s.id);
+      screens.forEach((s) => {
+        if ((s.name || "").toLowerCase().includes(lowerQuery)) matched.add(s.id);
       });
     }
 
-    // 简化布局：初始全部设为 (0,0)，依靠 runSmartArrange 或已保存位置
-    screens.forEach((screen) => {
+    const shouldHide = (id: string) => {
       if (hideIsolated) {
-        const isolated = !hasIncomingEdge.has(screen.id) && !hasOutgoingEdge.has(screen.id);
-        if (isolated) return;
+        const isolated = !(incoming.get(id)?.size) && !(outgoing.get(id)?.size);
+        if (isolated) return true;
       }
-      if (focusCurrent && currentScreenId && !visibleNodes.has(screen.id)) return;
+      if (focusCurrent && currentScreenId && !focusScope.has(id)) return true;
+      const entryPass = !entryFilterOnly || entryScope.size === 0 || entryScope.has(id);
+      const pinnedPass = !pinnedFilterOnly || pinnedScope.size === 0 || pinnedScope.has(id);
+      const anyFilterActive = (entryFilterOnly && entryScope.size > 0) || (pinnedFilterOnly && pinnedScope.size > 0);
+      if (anyFilterActive && !(entryPass || pinnedPass)) return true;
+      return false;
+    };
+
+    screens.forEach((screen) => {
+      if (shouldHide(screen.id)) return;
+
       const isCurrentScreen = screen.id === currentScreenId;
-      const isEntryPoint = !hasIncomingEdge.has(screen.id) && hasOutgoingEdge.has(screen.id);
-      const isOrphan = !hasIncomingEdge.has(screen.id) && !hasOutgoingEdge.has(screen.id);
-      const isEndPoint = hasIncomingEdge.has(screen.id) && !hasOutgoingEdge.has(screen.id);
+      const hasIn = incoming.get(screen.id)?.size ?? 0;
+      const hasOut = outgoing.get(screen.id)?.size ?? 0;
+      const isEntryPoint = entryRoots.has(screen.id);
+      const isPinned = pinnedSet.has(screen.id);
+      const isOrphan = hasIn === 0 && hasOut === 0;
+      const isEndPoint = hasIn > 0 && hasOut === 0;
       const isInCycle = cycleNodeIds.has(screen.id);
+      const inEntryScope = entryScope.has(screen.id);
+      const inPinnedScope = pinnedScope.has(screen.id);
 
       // 计算按钮统计
       const totalButtons = screen.keyboard.reduce((sum, row) => sum + row.buttons.length, 0);
@@ -223,26 +307,24 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       const nodeW = Math.round(baseW * nodeScale);
 
       let nodeColor = 'hsl(var(--primary))';
-      let nodeLabel = screen.name;
       let nodeBorderStyle = isInCycle ? 'dashed' : 'solid';
       const isMatched = matched.has(screen.id);
 
-      // Highlight logic
+      // Hover/高亮逻辑
       const isDimmed = highlightedPath && !highlightedPath.nodes.has(screen.id);
       const isHighlighted = highlightedPath && highlightedPath.nodes.has(screen.id);
 
       if (isCurrentScreen) {
         nodeColor = 'hsl(var(--primary))';
         nodeBorderStyle = 'solid';
+      } else if (isPinned) {
+        nodeColor = 'rgb(234, 179, 8)';
       } else if (isEntryPoint) {
-        nodeColor = 'hsl(var(--success, 142 76% 36%))'; // 绿色 - 入口点
-        nodeLabel = `🏠 ${screen.name}`;
+        nodeColor = 'hsl(var(--success, 142 76% 36%))';
       } else if (isOrphan) {
-        nodeColor = 'hsl(var(--destructive))'; // 红色 - 孤立节点
-        nodeLabel = `⚠️ ${screen.name}`;
+        nodeColor = 'hsl(var(--destructive))';
       } else if (isEndPoint) {
-        nodeColor = 'hsl(var(--secondary-foreground))'; // 蓝色 - 终点
-        nodeLabel = `🎯 ${screen.name}`;
+        nodeColor = 'hsl(var(--secondary-foreground))';
       }
 
       // 允许应用已保存的位置
@@ -253,12 +335,26 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
         data: {
           label: (
             <div className="flex flex-col items-start gap-1 p-2">
-              <div
-                className="font-semibold text-sm break-words leading-tight"
-                style={{ maxWidth: nodeW - 60, maxHeight: 36, overflow: 'hidden' }}
-                title={screen.name}
-              >
-                {nodeLabel}
+              <div className="flex items-start justify-between gap-2 w-full">
+                <div
+                  className="font-semibold text-sm break-words leading-tight flex-1"
+                  style={{ maxWidth: nodeW - 80, maxHeight: 36, overflow: 'hidden' }}
+                  title={screen.name}
+                >
+                  {screen.name}
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {isEntryPoint && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 text-[10px] inline-flex items-center gap-1">
+                      <Home className="w-3 h-3" /> 入口
+                    </span>
+                  )}
+                  {isPinned && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700 text-[10px] inline-flex items-center gap-1">
+                      <Star className="w-3 h-3" /> 置顶
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="text-xs text-muted-foreground">
                 {totalButtons} 按钮 | {linkedButtons} 链接
@@ -269,14 +365,26 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
                   未被引用
                 </div>
               )}
-              {isInCycle && (
-                <div className="text-[10px] text-amber-600 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> 循环
-                </div>
-              )}
-              {isMatched && (
-                <div className="text-[10px] text-primary">匹配</div>
-              )}
+              <div className="flex flex-wrap gap-1 text-[10px]">
+                {isInCycle && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 inline-flex items-center gap-1">
+                    <RefreshCcw className="w-3 h-3" /> 循环
+                  </span>
+                )}
+                {!isEntryPoint && inEntryScope && (
+                  <span className="px-1 py-0.5 rounded-full bg-emerald-50 text-emerald-700 inline-flex items-center gap-1">
+                    <Home className="w-3 h-3" /> 入口邻近
+                  </span>
+                )}
+                {!isPinned && inPinnedScope && (
+                  <span className="px-1 py-0.5 rounded-full bg-amber-50 text-amber-700 inline-flex items-center gap-1">
+                    <Star className="w-3 h-3" /> 置顶邻近
+                  </span>
+                )}
+                {isMatched && (
+                  <span className="px-1 py-0.5 rounded-full bg-primary/10 text-primary text-[10px]">匹配</span>
+                )}
+              </div>
             </div>
           ),
         },
@@ -301,18 +409,12 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     // 创建边（连接关系）
     const edgeMap = new Map<string, { count: number; buttons: string[] }>();
 
-    screens.forEach(screen => {
-      if (hideIsolated) {
-        const isolated = !hasIncomingEdge.has(screen.id) && !hasOutgoingEdge.has(screen.id);
-        if (isolated) return;
-      }
-      if (focusCurrent && currentScreenId && !visibleNodes.has(screen.id)) return;
-      screen.keyboard.forEach(row => {
-        row.buttons.forEach(btn => {
+    screens.forEach((screen) => {
+      if (shouldHide(screen.id)) return;
+      screen.keyboard.forEach((row) => {
+        row.buttons.forEach((btn) => {
           if (btn.linked_screen_id && screenMap.has(btn.linked_screen_id)) {
-            if (focusCurrent && currentScreenId && (!visibleNodes.has(screen.id) || !visibleNodes.has(btn.linked_screen_id))) {
-              return;
-            }
+            if (shouldHide(btn.linked_screen_id)) return;
             const edgeKey = `${screen.id}->${btn.linked_screen_id}`;
             if (!edgeMap.has(edgeKey)) {
               edgeMap.set(edgeKey, { count: 0, buttons: [] });
@@ -330,6 +432,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       const buttonList = data.buttons.slice(0, 3).join(', ') + (data.buttons.length > 3 ? '...' : '');
       const fullList = data.buttons.join(', ');
 
+      const isCycleEdge = cycleEdgeIds.has(key);
       const isEdgeDimmed = highlightedPath && !highlightedPath.edges.has(key);
       const isEdgeHighlighted = highlightedPath && highlightedPath.edges.has(key);
       const truncatedLabel = showButtonLabels
@@ -342,7 +445,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
         target: targetId,
         type: edgeStraight ? 'default' : 'smoothstep',
         pathOptions: { borderRadius: 20 },
-        animated: sourceId === currentScreenId || isEdgeHighlighted,
+        animated: sourceId === currentScreenId || isEdgeHighlighted || isCycleEdge,
         label: truncatedLabel,
         labelStyle: {
           fill: isEdgeHighlighted ? 'hsl(var(--primary))' : 'hsl(var(--foreground))',
@@ -356,14 +459,19 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
           opacity: isEdgeDimmed ? 0.2 : 1,
         },
         style: {
-          stroke: isEdgeHighlighted ? 'hsl(var(--primary))' : (sourceId === currentScreenId ? 'hsl(var(--primary))' : 'hsl(var(--border))'),
+          stroke: isEdgeHighlighted
+            ? 'hsl(var(--primary))'
+            : (isCycleEdge
+              ? 'rgb(234, 179, 8)'
+              : (sourceId === currentScreenId ? 'hsl(var(--primary))' : 'hsl(var(--border))')),
           strokeWidth: isEdgeHighlighted ? 3 : Math.min(3.5, 1 + Math.log2(1 + data.count)),
           opacity: isEdgeDimmed ? 0.2 : 1,
-          zIndex: isEdgeHighlighted ? 10 : 0,
+          zIndex: isEdgeHighlighted || isCycleEdge ? 10 : 0,
+          strokeDasharray: isCycleEdge ? '6 4' : undefined,
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: isEdgeHighlighted ? 'hsl(var(--primary))' : (sourceId === currentScreenId ? 'hsl(var(--primary))' : 'hsl(var(--border))'),
+          color: isEdgeHighlighted || isCycleEdge ? 'hsl(var(--primary))' : (sourceId === currentScreenId ? 'hsl(var(--primary))' : 'hsl(var(--border))'),
           width: 20,
           height: 20,
         },
@@ -372,7 +480,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     });
 
     return { nodes, edges, edgeHints: edgeHintMap, matchIds: matched };
-  }, [screens, currentScreenId, showButtonLabels, cycleNodeIds, focusCurrent, searchQuery, nodeScale, hideIsolated, highlightedPath, edgeStraight]);
+  }, [screens, currentScreenId, showButtonLabels, cycleNodeIds, focusCurrent, searchQuery, nodeScale, hideIsolated, highlightedPath, edgeStraight, entryFilterOnly, pinnedFilterOnly, pinnedSet, entryAnchors, cycleEdgeIds]);
 
   // 打开时：加载偏好/自动选择模式与方向，并 fitView
   useEffect(() => {
@@ -494,12 +602,20 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       });
     });
 
-    const entryPoints = screens.filter(s => !hasIncoming.has(s.id) && hasOutgoing.has(s.id)).length;
+    const entryPoints = entryAnchors.size;
     const orphans = screens.filter(s => !hasIncoming.has(s.id) && !hasOutgoing.has(s.id)).length;
     const endpoints = screens.filter(s => hasIncoming.has(s.id) && !hasOutgoing.has(s.id)).length;
 
-    return { totalScreens, entryPoints, orphans, endpoints, totalLinks: edges.length };
-  }, [screens, edges]);
+    return {
+      totalScreens,
+      entryPoints,
+      orphans,
+      endpoints,
+      totalLinks: edges.length,
+      pinned: pinnedSet.size,
+      cycles: cycleNodeIds.size,
+    };
+  }, [screens, edges, entryAnchors, pinnedSet, cycleNodeIds]);
 
   const handleNodeClick = (_event: React.MouseEvent, node: Node) => {
     if (onScreenClick) {
@@ -507,6 +623,25 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       onOpenChange(false);
     }
   };
+
+  const focusOnNodeIds = useCallback((ids: Set<string>) => {
+    if (!rfInstance || ids.size === 0) return;
+    const targetNodes = nodes.filter((n) => ids.has(n.id));
+    if (targetNodes.length === 0) return;
+    const xs = targetNodes.map((n) => n.position?.x ?? 0);
+    const ys = targetNodes.map((n) => n.position?.y ?? 0);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const centerX = minX + (maxX - minX) / 2 + 110;
+    const centerY = minY + (maxY - minY) / 2 + 55;
+    const zoom = Math.max(0.4, Math.min(1.3, 1.05 - targetNodes.length * 0.03));
+    rfInstance.setCenter(centerX, centerY, { zoom, duration: 400 });
+  }, [nodes, rfInstance]);
+
+  const handleFocusEntry = useCallback(() => focusOnNodeIds(entryAnchors), [focusOnNodeIds, entryAnchors]);
+  const handleFocusPinned = useCallback(() => focusOnNodeIds(pinnedSet), [focusOnNodeIds, pinnedSet]);
 
   // 包装 nodes change：拖拽后开启布局保留
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
@@ -798,6 +933,12 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
         onSetEntry(nodeId);
         // Optional: Show toast or visual feedback
       }
+      setEntryId(nodeId);
+      try {
+        localStorage.setItem(ENTRY_KEY, nodeId);
+      } catch (e) {
+        void e;
+      }
     } else if (action === 'delete') {
       if (confirm('确定要删除这个模版吗？此操作不可撤销。')) {
         if (onDeleteScreen) {
@@ -832,10 +973,18 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
                   <Home className="w-4 h-4 text-green-600" />
                   入口: {stats.entryPoints}
                 </span>
+                <span className="flex items-center gap-2">
+                  <Star className="w-4 h-4 text-amber-500" />
+                  置顶: {stats.pinned}
+                </span>
                 <span>终点: {stats.endpoints}</span>
                 <span className="flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-destructive" />
                   孤立: {stats.orphans}
+                </span>
+                <span className="flex items-center gap-2">
+                  <RefreshCcw className="w-4 h-4 text-amber-600" />
+                  循环: {stats.cycles}
                 </span>
                 <span>总链接: {stats.totalLinks}</span>
               </div>
@@ -871,29 +1020,45 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
               <Button variant="outline" size="sm" onClick={() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 })} title="重置视图" disabled={!screens.length}>
                 重置视图
               </Button>
+              <Button variant="ghost" size="sm" onClick={handleFocusEntry} title="入口节点居中显示" disabled={!screens.length || entryAnchors.size === 0}>
+                <Crosshair className="w-4 h-4 mr-1" /> 入口视图
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleFocusPinned} title="置顶节点居中显示" disabled={!screens.length || pinnedSet.size === 0}>
+                <Crosshair className="w-4 h-4 mr-1" /> 置顶视图
+              </Button>
               <div className="flex items-center gap-2" title="显示边上的按钮名称">
                 <ListChecks className="w-4 h-4" />
-                <Switch checked={showButtonLabels} onCheckedChange={v => setShowButtonLabels(!!v)} />
+                <Switch aria-label="显示按钮标签" checked={showButtonLabels} onCheckedChange={v => setShowButtonLabels(!!v)} />
               </div>
               <div className="flex items-center gap-2" title="只显示与当前模版相关的节点（上下游2层）">
                 <span className="text-muted-foreground">仅关联</span>
-                <Switch checked={focusCurrent} onCheckedChange={v => setFocusCurrent(!!v)} />
+                <Switch aria-label="仅关联" checked={focusCurrent} onCheckedChange={v => setFocusCurrent(!!v)} />
               </div>
               <div className="flex items-center gap-2" title="心智图模式（从中心向两侧发散）">
                 <span className="text-muted-foreground">心智图</span>
-                <Switch checked={mindMapMode} onCheckedChange={v => { setMindMapMode(!!v); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} />
+                <Switch aria-label="心智图" checked={mindMapMode} onCheckedChange={v => { setMindMapMode(!!v); setTimeout(() => rfInstance?.fitView({ padding: 0.2, maxZoom: 1 }), 50); }} />
               </div>
               <div className="flex items-center gap-2" title="紧凑模式（更密集的布局）">
                 <span className="text-muted-foreground">紧凑</span>
-                <Switch checked={isCompact} onCheckedChange={v => setIsCompact(!!v)} />
+                <Switch aria-label="紧凑模式" checked={isCompact} onCheckedChange={v => setIsCompact(!!v)} />
               </div>
               <div className="flex items-center gap-2" title="隐藏孤立节点（未被引用且无输出）">
                 <span className="text-muted-foreground">隐藏孤立</span>
-                <Switch checked={hideIsolated} onCheckedChange={v => setHideIsolated(!!v)} />
+                <Switch aria-label="隐藏孤立" checked={hideIsolated} onCheckedChange={v => setHideIsolated(!!v)} />
+              </div>
+              <div className="flex items-center gap-2" title="只显示入口节点及一层上下游">
+                <Filter className="w-4 h-4" />
+                <span className="text-muted-foreground">入口筛选</span>
+                <Switch aria-label="入口筛选" checked={entryFilterOnly} onCheckedChange={v => setEntryFilterOnly(!!v)} disabled={entryAnchors.size === 0} />
+              </div>
+              <div className="flex items-center gap-2" title="只显示置顶节点及一层上下游">
+                <Star className="w-4 h-4 text-amber-500" />
+                <span className="text-muted-foreground">置顶筛选</span>
+                <Switch aria-label="置顶筛选" checked={pinnedFilterOnly} onCheckedChange={v => setPinnedFilterOnly(!!v)} disabled={pinnedSet.size === 0} />
               </div>
               <div className="flex items-center gap-2" title="边样式：直线/曲线">
                 <span className="text-muted-foreground">直线边</span>
-                <Switch checked={edgeStraight} onCheckedChange={v => setEdgeStraight(!!v)} />
+                <Switch aria-label="直线边" checked={edgeStraight} onCheckedChange={v => setEdgeStraight(!!v)} />
               </div>
               <div className="flex flex-col gap-1">
                 <div className="flex gap-2 flex-wrap">
@@ -976,6 +1141,8 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
             <Controls />
             <MiniMap
               nodeColor={(node) => {
+                if (entryAnchors.has(node.id)) return 'hsl(var(--success, 142 76% 36%))';
+                if (pinnedSet.has(node.id)) return 'rgb(234, 179, 8)';
                 if (node.id === currentScreenId) return 'hsl(var(--primary))';
                 return 'hsl(var(--muted))';
               }}
@@ -1022,6 +1189,10 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
             <span className="flex items-center gap-1">
               <span className="w-3 h-3 rounded-full bg-green-600"></span>
               🏠 入口点（无输入有输出）
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded-full bg-amber-500"></span>
+              ★ 置顶（收藏节点）
             </span>
             <span className="flex items-center gap-1">
               <span className="w-3 h-3 rounded-full bg-blue-600"></span>

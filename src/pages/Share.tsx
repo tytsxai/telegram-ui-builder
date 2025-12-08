@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import MessageBubble from "@/components/MessageBubble";
 import InlineKeyboard from "@/components/InlineKeyboard";
@@ -9,7 +9,6 @@ import type { Json } from "@/integrations/supabase/types";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { SupabaseDataAccess } from "@/lib/dataAccess";
-import { useMemo } from "react";
 
 type ScreenRow = Omit<Screen, "keyboard"> & { keyboard: unknown };
 type ShareScreen = Screen & { rawMessageContent: string };
@@ -64,6 +63,7 @@ const Share = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const dataAccess = useMemo(() => new SupabaseDataAccess(), []);
+  const previewRef = useRef<HTMLDivElement | null>(null);
 
   const formatDateTime = (input?: string | null) => {
     if (!input) return "时间未知";
@@ -107,6 +107,10 @@ const Share = () => {
     }
   }, [token, navigate, dataAccess]);
 
+  const scrollToEntry = () => {
+    previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const handleCopy = async () => {
     if (!user) {
       toast.error("请先登录以复制此模版");
@@ -149,20 +153,57 @@ const Share = () => {
 
   if (!screen) return null;
 
+  const authorLabel = screen.user_id ? `${screen.user_id.slice(0, 8)}…` : "匿名用户";
+  const lastUpdatedLabel = formatDateTime(screen.updated_at || screen.created_at);
+
   return (
     <div className="min-h-screen bg-background p-4">
       <div className="max-w-md mx-auto space-y-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">{screen.name}</h1>
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold">{screen.name}</h1>
+              <span className="px-2 py-0.5 text-[11px] rounded-full border bg-emerald-500/10 text-emerald-600 border-emerald-500/40">
+                入口
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground">公开入口模版，可复制并在工作台继续编辑</p>
+          </div>
           <Button onClick={handleCopy}>复制并编辑</Button>
         </div>
-        <div className="bg-muted/50 rounded-lg p-3 text-sm text-muted-foreground space-y-1">
-          <div>作者: {screen.user_id ? `${screen.user_id.slice(0, 8)}…` : "匿名用户"}</div>
-          <div>更新于: {formatDateTime(screen.updated_at || screen.created_at)}</div>
-          <div>可见性: {screen.is_public ? "公开" : "私有"}</div>
+        <div className="bg-muted/50 rounded-lg p-3 text-sm text-muted-foreground space-y-2">
+          <div className="flex items-center justify-between">
+            <span>作者</span>
+            <span className="text-foreground font-medium">{authorLabel}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>入口屏幕</span>
+            <span className="text-foreground font-medium">{screen.name}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>更新时间</span>
+            <span>{lastUpdatedLabel}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>可见性</span>
+            <span className={`px-2 py-0.5 rounded-full text-xs ${screen.is_public ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-500/10 text-slate-700"}`}>
+              {screen.is_public ? "公开分享中" : "私有"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between pt-1">
+            <Button variant="outline" size="sm" onClick={scrollToEntry}>
+              跳到入口预览
+            </Button>
+            <span className="text-[11px] text-muted-foreground">分享链接指向入口屏幕</span>
+          </div>
         </div>
 
-        <div className="bg-[#0E1621] rounded-2xl shadow-xl overflow-hidden">
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <span>入口预览</span>
+          <span>{lastUpdatedLabel}</span>
+        </div>
+
+        <div ref={previewRef} className="bg-[#0E1621] rounded-2xl shadow-xl overflow-hidden">
           <div className="bg-[#17212B] px-4 py-3 flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-[#2AABEE] flex items-center justify-center text-white font-semibold">
               B

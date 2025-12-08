@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
 
 interface BottomPanelProps {
     editableJSON: string;
@@ -21,7 +22,15 @@ interface BottomPanelProps {
     pendingQueueSize?: number;
     onRetryPendingOps?: () => void;
     onClearPendingOps?: () => void;
-    pendingItems?: Array<{ id: string; kind: string; lastError?: string; createdAt?: number }>;
+    pendingItems?: Array<{
+        id: string;
+        kind: string;
+        attempts?: number;
+        lastError?: string;
+        lastAttemptAt?: number;
+        createdAt?: number;
+        failures?: Array<{ at: number; message: string }>;
+    }>;
     onExportPending?: () => void;
     retryingQueue?: boolean;
     isOffline?: boolean;
@@ -54,6 +63,15 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
     onCopyCodegen,
 }) => {
     const [confirmOpen, setConfirmOpen] = React.useState(false);
+    const hasPendingErrors = pendingItems.some((item) => !!item.lastError);
+    const formatTimestamp = (value?: number) => {
+        if (!value) return "未记录";
+        try {
+            return new Date(value).toLocaleTimeString();
+        } catch {
+            return "未记录";
+        }
+    };
 
     return (
         <div className="p-4 space-y-4">
@@ -62,9 +80,17 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
                 {pendingOpsNotice && (
                     <Alert className="border-amber-500/50 bg-amber-500/10 py-2">
                         <AlertCircle className="h-4 w-4 text-amber-600" />
-                        <AlertDescription className="text-xs text-foreground">
-                            有未同步的保存请求（{pendingQueueSize ?? "?"}），请联网后重试。
-                            <div className="mt-2 flex flex-wrap gap-2 items-center">
+                        <AlertDescription className="text-xs text-foreground space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span>有未同步的保存请求（{pendingQueueSize ?? "?"}）</span>
+                                    {isOffline && <Badge variant="outline" className="h-5 px-2 text-[11px] border-amber-300 text-amber-800">离线</Badge>}
+                                    {retryingQueue && <Badge variant="secondary" className="h-5 px-2 text-[11px]">重试中</Badge>}
+                                    {hasPendingErrors && <Badge variant="destructive" className="h-5 px-2 text-[11px]">存在错误</Badge>}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground">可手动重放或导出队列</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2 items-center">
                                 <Button
                                     size="sm"
                                     variant="outline"
@@ -94,16 +120,44 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
                                 </Button>
                             </div>
                             {pendingItems.length > 0 && (
-                                <ScrollArea className="h-24 mt-2 rounded border border-amber-200/60">
-                                    <div className="p-2 space-y-1 text-xs text-muted-foreground">
-                                        {pendingItems.map((item) => (
-                                            <div key={item.id} className="flex justify-between gap-2">
-                                                <span>{item.kind} · {item.id.slice(0, 6)}</span>
-                                                <span className="text-[11px] text-amber-700 truncate max-w-[180px]">
-                                                    {item.lastError || "待重试"}
-                                                </span>
-                                            </div>
-                                        ))}
+                                <ScrollArea className="h-32 mt-2 rounded border border-amber-200/60">
+                                    <div className="p-2 space-y-2 text-xs text-muted-foreground">
+                                        {pendingItems.map((item) => {
+                                            const lastFailure = item.failures?.[item.failures.length - 1];
+                                            const lastMessage = lastFailure?.message ?? item.lastError ?? "待重试";
+                                            const attempts = item.attempts ?? 0;
+                                            return (
+                                                <div key={item.id} className="rounded-md border border-amber-100 bg-amber-50/60 p-2 space-y-1">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-foreground">{item.kind} · {item.id.slice(0, 6)}</span>
+                                                            <Badge variant="outline" className="h-5 px-2 text-[11px] border-amber-200 text-amber-800 bg-white">
+                                                                尝试 {attempts}
+                                                            </Badge>
+                                                        </div>
+                                                        <span className="text-[11px] text-muted-foreground">
+                                                            {formatTimestamp(lastFailure?.at ?? item.lastAttemptAt ?? item.createdAt)}
+                                                        </span>
+                                                    </div>
+                                                    <div className="text-[11px] text-amber-700 break-words">
+                                                        {lastMessage}
+                                                    </div>
+                                                    {item.failures && item.failures.length > 1 && (
+                                                        <div className="flex flex-wrap gap-1 pt-1">
+                                                            {item.failures.slice(-3).map((failure, idx) => (
+                                                                <Badge
+                                                                    key={`${item.id}-${idx}`}
+                                                                    variant="outline"
+                                                                    className="h-5 px-2 text-[11px] border-amber-200 text-amber-800 bg-white"
+                                                                >
+                                                                    {formatTimestamp(failure.at)} · {failure.message}
+                                                                </Badge>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </ScrollArea>
                             )}

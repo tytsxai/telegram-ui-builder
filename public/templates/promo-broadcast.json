@@ -1,0 +1,26 @@
+{
+  "id": "promo-broadcast",
+  "name": "限时促销广播",
+  "summary": "优惠码 + 活动落地页，适合营销或新功能上线。",
+  "parse_mode": "MarkdownV2",
+  "message_type": "text",
+  "message_content": "**限时 72h**：全场立减 15%！\\n使用优惠码 `LAUNCH15`，点击「立刻抢购」自动应用，右键按钮可调整为跳转到你的活动页。",
+  "media_url": "",
+  "keyboard": [
+    {
+      "id": "promo-row-1",
+      "buttons": [
+        { "id": "promo-btn-1", "text": "立刻抢购", "url": "https://example.com/deal" },
+        { "id": "promo-btn-2", "text": "联系客服", "callback_data": "talk_to_team" }
+      ]
+    },
+    {
+      "id": "promo-row-2",
+      "buttons": [
+        { "id": "promo-btn-3", "text": "常见问题", "callback_data": "promo_faq" }
+      ]
+    }
+  ],
+  "category": "campaign",
+  "estimated_time": "45s"
+}

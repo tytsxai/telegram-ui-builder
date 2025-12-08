@@ -32,6 +32,22 @@ export const useScreenNavigation = (
         }
     }, [entryScreenId]);
 
+    // Keep entry consistent with available screens
+    useEffect(() => {
+        setEntryScreenId((prev) => {
+            if (screens.length === 0) {
+                return null;
+            }
+            if (prev && screens.some((s) => s.id === prev)) {
+                return prev;
+            }
+            if (!prev && screens.length === 1) {
+                return screens[0].id;
+            }
+            return null;
+        });
+    }, [screens]);
+
     const handleNavigateBack = useCallback(() => {
         setNavigationHistory((prev) => {
             const newHistory = [...prev];

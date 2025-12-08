@@ -60,6 +60,49 @@ describe("useChatState", () => {
     }
   });
 
+  it("loads template payloads without breaking validation", async () => {
+    const { result } = renderHook(() => useChatState());
+
+    const template = {
+      message_content: "Template says hello",
+      keyboard: [
+        { id: "row-t1", buttons: [{ id: "btn-t1", text: "Go", callback_data: "go_now" }] },
+      ],
+      parse_mode: "MarkdownV2" as const,
+      message_type: "text" as const,
+    };
+
+    act(() => {
+      const response = result.current.loadTemplate(template);
+      expect(response.ok).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(result.current.messageContent).toBe("Template says hello");
+      expect(result.current.keyboard[0].buttons[0].text).toBe("Go");
+      expect(result.current.parseMode).toBe("MarkdownV2");
+    });
+
+    const exported = JSON.parse(result.current.editableJSON);
+    expect(exported.parse_mode).toBe("MarkdownV2");
+    expect(exported.reply_markup.inline_keyboard[0][0].callback_data).toBe("go_now");
+  });
+
+  it("rejects invalid templates and surfaces error", () => {
+    const { result } = renderHook(() => useChatState());
+    const template = {
+      message_content: "",
+      keyboard: [],
+      parse_mode: "HTML" as const,
+    };
+
+    act(() => {
+      const res = result.current.loadTemplate(template);
+      expect(res.ok).toBe(false);
+      expect((res as { ok: false; error: string }).error).toMatch(/不能为空/);
+    });
+  });
+
   it("tracks history and supports undo/redo", () => {
     const { result } = renderHook(() => useChatState());
 

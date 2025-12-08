@@ -1,6 +1,6 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
-import { Eye, Edit, Undo2, Redo2, Edit2 } from "lucide-react";
+import { Eye, Edit, Undo2, Redo2, Edit2, Sparkles, Network } from "lucide-react";
 import MessageBubble, { MessageBubbleHandle } from "../MessageBubble";
 import InlineKeyboard from "../InlineKeyboard";
 import { Screen, KeyboardRow, KeyboardButton } from "@/types/telegram";
@@ -28,6 +28,8 @@ interface CenterCanvasProps {
     // State
     isPreviewMode: boolean;
     onToggleMode: () => void;
+    onOpenTemplateLibrary: () => void;
+    onOpenFlowDiagram?: () => void;
 
     // Undo/Redo
     canUndo: boolean;
@@ -41,8 +43,10 @@ interface CenterCanvasProps {
     // Context
     screens: Screen[];
     navigationHistory: string[];
+    currentScreenId?: string;
     onNavigateBack: () => void;
     currentScreenName?: string;
+    entryScreenId?: string | null;
     // Status
     hasUnsavedChanges?: boolean;
     isOffline?: boolean;
@@ -62,6 +66,7 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
     onKeyboardReorder,
     isPreviewMode,
     onToggleMode,
+    onOpenTemplateLibrary,
     canUndo,
     canRedo,
     onUndo,
@@ -69,8 +74,10 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
     messageBubbleRef,
     screens,
     navigationHistory,
+    currentScreenId,
     onNavigateBack,
     currentScreenName,
+    entryScreenId,
     hasUnsavedChanges,
     isOffline,
     shareSyncStatus,
@@ -82,6 +89,7 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
     mediaUrl,
     onMessageTypeChange,
     onMediaUrlChange,
+    onOpenFlowDiagram,
 }) => {
     React.useEffect(() => {
         const savedTheme = localStorage.getItem("theme");
@@ -91,6 +99,9 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
             document.documentElement.classList.remove("dark");
         }
     }, []);
+
+    const activeScreenId = currentScreenId ?? navigationHistory[navigationHistory.length - 1];
+    const isEntryActive = !!entryScreenId && activeScreenId === entryScreenId;
 
     const renderStatusBadge = (label: string, status?: SyncStatus) => {
         if (!status || status.state === "idle") return null;
@@ -126,6 +137,27 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
                         {isPreviewMode ? <Eye className="w-3 h-3 mr-2" /> : <Edit className="w-3 h-3 mr-2" />}
                         {isPreviewMode ? "预览" : "编辑"}
                     </Button>
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={onOpenTemplateLibrary}
+                        className="h-8 bg-gradient-to-r from-emerald-500/80 via-cyan-500/80 to-blue-500/80 text-white border-none shadow-sm"
+                    >
+                        <Sparkles className="w-3 h-3 mr-2" />
+                        模板库
+                    </Button>
+                    {onOpenFlowDiagram && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={onOpenFlowDiagram}
+                            className="h-8"
+                            title="查看关系图"
+                        >
+                            <Network className="w-3 h-3 mr-2" />
+                            关系图
+                        </Button>
+                    )}
 
                     {/* Breadcrumbs / Title */}
                     <div className="flex items-center gap-2 ml-2">
@@ -137,6 +169,11 @@ export const CenterCanvas = React.memo<CenterCanvasProps>(({
                         )}
                         {isOffline && (
                             <span className="w-2 h-2 rounded-full bg-slate-500" title="离线" />
+                        )}
+                        {isEntryActive && currentScreenName && (
+                            <span className="px-2 py-0.5 text-[10px] rounded-full border bg-emerald-500/10 text-emerald-700 border-emerald-500/50">
+                                入口
+                            </span>
                         )}
                         {renderStatusBadge("分享", shareSyncStatus)}
                         {renderStatusBadge("布局", layoutSyncStatus)}

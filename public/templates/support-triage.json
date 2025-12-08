@@ -1,0 +1,27 @@
+{
+  "id": "support-triage",
+  "name": "客服分流面板",
+  "summary": "按常见诉求分流，保留人工入口与状态查询链接。",
+  "parse_mode": "HTML",
+  "message_type": "text",
+  "message_content": "感谢联系！请选择一个入口，我会将你引导到最合适的处理流程：",
+  "media_url": "",
+  "keyboard": [
+    {
+      "id": "support-row-1",
+      "buttons": [
+        { "id": "support-btn-1", "text": "📦 订单问题", "callback_data": "order_support" },
+        { "id": "support-btn-2", "text": "💳 支付/发票", "callback_data": "billing_support" }
+      ]
+    },
+    {
+      "id": "support-row-2",
+      "buttons": [
+        { "id": "support-btn-3", "text": "查看进度", "url": "https://status.example.com" },
+        { "id": "support-btn-4", "text": "转人工", "callback_data": "handoff_agent" }
+      ]
+    }
+  ],
+  "category": "support",
+  "estimated_time": "40s"
+}

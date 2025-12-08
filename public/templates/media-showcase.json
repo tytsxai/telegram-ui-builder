@@ -1,0 +1,26 @@
+{
+  "id": "media-showcase",
+  "name": "图文展示 + 引导",
+  "summary": "一张配图 + 两步导航，适合产品亮点或案例截图。",
+  "parse_mode": "HTML",
+  "message_type": "photo",
+  "message_content": "这张卡片用于展示你的产品亮点或案例截图，点击下方按钮即可获取代码或预约演示。",
+  "media_url": "https://images.unsplash.com/photo-1522199755839-a2bacb67c546?auto=format&fit=crop&w=1200&q=80",
+  "keyboard": [
+    {
+      "id": "media-row-1",
+      "buttons": [
+        { "id": "media-btn-1", "text": "获取示例代码", "callback_data": "get_sample_code" },
+        { "id": "media-btn-2", "text": "预约演示", "url": "https://example.com/demo" }
+      ]
+    },
+    {
+      "id": "media-row-2",
+      "buttons": [
+        { "id": "media-btn-3", "text": "更多案例", "callback_data": "more_cases" }
+      ]
+    }
+  ],
+  "category": "showcase",
+  "estimated_time": "50s"
+}

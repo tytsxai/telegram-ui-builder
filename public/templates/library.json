@@ -1,0 +1,46 @@
+[
+  {
+    "id": "welcome-starter",
+    "name": "欢迎引导 + 快捷入口",
+    "summary": "首访欢迎语 + 4 个常用入口，帮新用户在 30s 内找到方向。",
+    "file": "/templates/welcome-starter.json",
+    "accent": "from-emerald-500/70 via-teal-400/80 to-cyan-400/70",
+    "estimated_time": "30s",
+    "tags": ["上手", "导航"],
+    "preview": "👋 欢迎来到 {brand}！我可以帮你快速查看功能、定价或安排真人支持。",
+    "category": "onboarding"
+  },
+  {
+    "id": "promo-broadcast",
+    "name": "限时促销广播",
+    "summary": "优惠码 + 活动页落地，适合上新或节点营销。",
+    "file": "/templates/promo-broadcast.json",
+    "accent": "from-amber-400/80 via-orange-400/80 to-red-400/70",
+    "estimated_time": "45s",
+    "tags": ["营销", "促活"],
+    "preview": "限时 72h：全场立减 15%，使用 LAUNCH15 自动应用。",
+    "category": "campaign"
+  },
+  {
+    "id": "support-triage",
+    "name": "客服分流面板",
+    "summary": "按诉求分流，保留人工入口与状态页，减少重复问答。",
+    "file": "/templates/support-triage.json",
+    "accent": "from-sky-500/80 via-blue-500/70 to-indigo-500/70",
+    "estimated_time": "40s",
+    "tags": ["客服", "分流"],
+    "preview": "感谢联系！请选择一个入口，我会将你引导到最合适的处理流程。",
+    "category": "support"
+  },
+  {
+    "id": "media-showcase",
+    "name": "图文展示 + 引导",
+    "summary": "配图展示亮点，附带代码/演示入口，适合案例或新品。",
+    "file": "/templates/media-showcase.json",
+    "accent": "from-fuchsia-500/80 via-purple-500/80 to-blue-500/70",
+    "estimated_time": "50s",
+    "tags": ["素材", "演示"],
+    "preview": "用一张卡片讲清楚亮点，点击下方按钮即可获取代码或预约演示。",
+    "category": "showcase"
+  }
+]

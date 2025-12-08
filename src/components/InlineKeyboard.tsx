@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   useSensor,
@@ -18,6 +18,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { X, Settings } from "lucide-react";
 import type { KeyboardRow, KeyboardButton, Screen } from "@/types/telegram";
 import ButtonEditDialog from "./ButtonEditDialog";
+import clsx from "clsx";
+import { CALLBACK_DATA_MAX_BYTES, MAX_BUTTONS_PER_ROW, getByteLength, getKeyboardValidationErrors } from "@/lib/validation";
 
 interface InlineKeyboardProps {
   keyboard: KeyboardRow[];
@@ -61,6 +63,11 @@ const InlineKeyboard = React.memo(({
       setSelectedButton({ row: latestRow, button: latestButton });
     }
   }, [keyboard, selectedButton]);
+
+  const validationErrors = useMemo(() => {
+    if (readOnly) return [];
+    return getKeyboardValidationErrors(keyboard);
+  }, [keyboard, readOnly]);
 
   const handleTextEditClick = (buttonId: string) => {
     setEditingButton(buttonId);
@@ -138,12 +145,22 @@ const InlineKeyboard = React.memo(({
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
       id: `row:${row.id}`,
     });
+    const rowHasTooManyButtons = row.buttons.length > MAX_BUTTONS_PER_ROW;
     const style = {
       transform: CSS.Transform.toString(transform),
       transition,
     };
     return (
-      <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="flex flex-col gap-2">
+      <div
+        ref={setNodeRef}
+        style={style}
+        {...attributes}
+        {...listeners}
+        className={clsx(
+          "flex flex-col gap-2",
+          !readOnly && rowHasTooManyButtons && "ring-1 ring-destructive/50 rounded-md"
+        )}
+      >
         <SortableContext items={row.buttons.map((b) => `btn:${row.id}_${b.id}`)} strategy={horizontalListSortingStrategy}>
           <div className="flex gap-[2px]">
             {row.buttons.map((button) => (
@@ -151,6 +168,9 @@ const InlineKeyboard = React.memo(({
             ))}
           </div>
         </SortableContext>
+        {!readOnly && rowHasTooManyButtons && (
+          <div className="text-[11px] text-destructive px-1 pb-1">每行最多 {MAX_BUTTONS_PER_ROW} 个按钮</div>
+        )}
       </div>
     );
   };
@@ -159,6 +179,7 @@ const InlineKeyboard = React.memo(({
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
       id: `btn:${row.id}_${button.id}`,
     });
+    const callbackTooLong = !readOnly && !isPreviewMode && !!button.callback_data && getByteLength(button.callback_data) > CALLBACK_DATA_MAX_BYTES;
     const style = {
       transform: CSS.Transform.toString(transform),
       transition,
@@ -184,7 +205,10 @@ const InlineKeyboard = React.memo(({
         <button
           {...attributes}
           {...listeners}
-          className="w-full bg-telegram-button hover:bg-telegram-button/80 text-telegram-buttonText border-none rounded-md py-2 px-3 text-[15px] font-medium transition-colors relative overflow-hidden"
+          className={clsx(
+            "w-full bg-telegram-button hover:bg-telegram-button/80 text-telegram-buttonText border-none rounded-md py-2 px-3 text-[15px] font-medium transition-colors relative overflow-hidden",
+            callbackTooLong && "ring-1 ring-destructive/60"
+          )}
           title={readOnly ? "仅供预览" : isPreviewMode ? "点击执行操作" : "双击编辑文本"}
         >
           {!readOnly && !isPreviewMode && editingButton === button.id ? (
@@ -208,6 +232,11 @@ const InlineKeyboard = React.memo(({
             />
           ) : (
             <span className="truncate block">{button.text}</span>
+          )}
+          {callbackTooLong && (
+            <span className="absolute bottom-1 right-1 text-[10px] text-destructive bg-white/90 rounded px-1 shadow-sm">
+              超过 64B
+            </span>
           )}
         </button>
         {!readOnly && (
@@ -272,6 +301,13 @@ const InlineKeyboard = React.memo(({
         />
       )}
       <div className="space-y-4 mt-4">
+        {!readOnly && validationErrors.length > 0 && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 text-destructive text-xs px-3 py-2 space-y-1">
+            {validationErrors.map((msg, idx) => (
+              <div key={`${msg}-${idx}`}>{msg}</div>
+            ))}
+          </div>
+        )}
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={keyboard.map((row) => `row:${row.id}`)} strategy={verticalListSortingStrategy}>
             {keyboard.map((row) => (

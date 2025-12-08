@@ -8,7 +8,7 @@ import { Screen } from "@/types/telegram";
 import type { User } from "@supabase/supabase-js";
 
 interface SidebarLeftProps {
-    user: User;
+    user: User | null;
     screens: Screen[];
     currentScreenId: string | undefined;
     entryScreenId: string | null;
@@ -26,8 +26,8 @@ interface SidebarLeftProps {
     onUpdateScreen: () => void;
     onDeleteScreen: (id: string) => void;
     onDeleteAllScreens: () => void;
-    onTogglePin: () => void;
-    onSetEntry: () => void;
+    onTogglePin: (id: string) => void;
+    onSetEntry: (screenId: string | null) => void;
     onJumpToEntry: () => void;
     onCopyOrShare: () => void;
     onRotateShareLink: () => void;
@@ -72,6 +72,9 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
     onOpenFlowDiagram,
 }) => {
     const isPinned = (id?: string) => !!id && pinnedIds.includes(id);
+    const hasEntry = !!entryScreenId && screens.some((s) => s.id === entryScreenId);
+    const entryScreenName = screens.find((s) => s.id === entryScreenId)?.name;
+    const entryValue = entryScreenId ?? "none";
 
     return (
         <div className="flex flex-col h-full p-4 space-y-4">
@@ -137,7 +140,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                     <div className="grid grid-cols-2 gap-2">
                         <Button
                             variant={isPinned(currentScreenId) ? "default" : "outline"}
-                            onClick={onTogglePin}
+                            onClick={() => onTogglePin(currentScreenId)}
                             size="sm"
                             className="justify-start"
                         >
@@ -157,7 +160,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                     <div className="grid grid-cols-2 gap-2">
                         <Button
                             variant={entryScreenId === currentScreenId ? "default" : "outline"}
-                            onClick={onSetEntry}
+                            onClick={() => onSetEntry(currentScreenId || null)}
                             size="sm"
                             className="justify-start"
                         >
@@ -179,24 +182,45 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
             <Separator />
 
             {/* Share Actions */}
-            {currentScreenId && (
-                <div className="space-y-2">
-                    <h3 className="text-sm font-medium text-muted-foreground">分享设置</h3>
+            {screens.length > 0 && (
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-medium text-muted-foreground">入口 & 分享</h3>
+                        <span className={`text-xs ${hasEntry ? "text-emerald-600" : "text-muted-foreground"}`}>
+                            {hasEntry ? `入口：${entryScreenName}` : "未选择入口"}
+                        </span>
+                    </div>
+                    <div className="space-y-1">
+                        <Select value={entryValue} onValueChange={(val) => onSetEntry(val === "none" ? null : val)}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="选择入口模版..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">未设置入口</SelectItem>
+                                {screens.map((s) => (
+                                    <SelectItem key={s.id} value={s.id}>
+                                        {entryScreenId === s.id ? "🏠 " : ""}{s.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-muted-foreground">分享/导出使用入口屏幕，需先选择入口。</p>
+                    </div>
                     <Button
                         variant="outline"
                         onClick={onCopyOrShare}
-                        disabled={shareLoading}
+                        disabled={shareLoading || !hasEntry}
                         className="w-full justify-start"
                         size="sm"
                     >
                         <Share2 className="w-4 h-4 mr-2" />
-                        {shareLoading ? "处理中..." : "生成/复制分享链接"}
+                        {shareLoading ? "处理中..." : "生成/复制入口链接"}
                     </Button>
                     <div className="grid grid-cols-2 gap-2">
                         <Button
                             variant="outline"
                             onClick={onRotateShareLink}
-                            disabled={shareLoading}
+                            disabled={shareLoading || !hasEntry}
                             size="sm"
                             className="justify-start"
                         >
@@ -205,7 +229,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                         <Button
                             variant="outline"
                             onClick={onUnshareScreen}
-                            disabled={shareLoading}
+                            disabled={shareLoading || !hasEntry}
                             size="sm"
                             className="justify-start text-destructive hover:text-destructive"
                         >

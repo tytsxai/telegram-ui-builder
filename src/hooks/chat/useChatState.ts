@@ -1,5 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { KeyboardRow } from '@/types/telegram';
+import { validateKeyboard, validateMessageContent } from '@/lib/validation';
+import type { TemplatePayload, ParseMode, MessageType } from "@/types/templates";
+export type { TemplatePayload, ParseMode, MessageType } from "@/types/templates";
 
 const DEFAULT_KEYBOARD_TEMPLATE: KeyboardRow[] = [
     {
@@ -16,9 +19,6 @@ interface TelegramExportButton {
     url?: string;
     callback_data?: string;
 }
-
-type ParseMode = "HTML" | "MarkdownV2";
-type MessageType = "text" | "photo" | "video";
 
 type TelegramExportPayload =
     | {
@@ -45,6 +45,8 @@ type SerializedMessage = {
     mediaUrl?: string;
     parse_mode: ParseMode;
 };
+
+type LoadTemplateResult = { ok: true } | { ok: false; error: string };
 
 export const useChatState = () => {
     const [messageContent, setMessageContent] = useState("Welcome to the Telegram UI Builder!\n\nEdit this message directly.\n\nFormatting:\n**bold text** for bold\n`code blocks` for code");
@@ -190,6 +192,35 @@ export const useChatState = () => {
         setMediaUrl("");
     }, []);
 
+    const loadTemplate = useCallback((template: TemplatePayload): LoadTemplateResult => {
+        try {
+            validateMessageContent(template.message_content);
+            validateKeyboard(template.keyboard);
+        } catch (error) {
+            return {
+                ok: false,
+                error: error instanceof Error ? error.message : "模板格式不合法",
+            };
+        }
+
+        const requestedType = template.message_type ?? "text";
+        const allowedTypes: MessageType[] = ["text", "photo", "video"];
+        const nextType: MessageType = allowedTypes.includes(requestedType) ? requestedType : "text";
+        const nextParseMode: ParseMode = template.parse_mode === "MarkdownV2" ? "MarkdownV2" : "HTML";
+        const safeMedia = template.media_url || "";
+        const finalType: MessageType = nextType !== "text" && !safeMedia ? "text" : nextType;
+        const safeKeyboard = JSON.parse(JSON.stringify(template.keyboard)) as KeyboardRow[];
+
+        setMessageContent(template.message_content);
+        setKeyboard(safeKeyboard);
+        setParseMode(nextParseMode);
+        setMessageType(finalType);
+        setMediaUrl(finalType === "text" ? "" : safeMedia);
+        pushToHistory(template.message_content, safeKeyboard);
+
+        return { ok: true };
+    }, [pushToHistory]);
+
     useEffect(() => {
         setEditableJSON(JSON.stringify(convertToTelegramFormat(), null, 2));
     }, [convertToTelegramFormat]);
@@ -215,5 +246,6 @@ export const useChatState = () => {
         convertToTelegramFormat,
         serializeMessagePayload,
         loadMessagePayload,
+        loadTemplate,
     };
 };

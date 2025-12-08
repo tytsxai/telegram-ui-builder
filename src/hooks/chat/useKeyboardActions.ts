@@ -64,16 +64,25 @@ export const useKeyboardActions = (
     const handleAddButton = useCallback(() => {
         setKeyboard((prev) => {
             const timestamp = Date.now();
+            const lastRow = prev[prev.length - 1];
+            const isLastRowFull = lastRow ? lastRow.buttons.length >= MAX_BUTTONS_PER_ROW : false;
+
+            if (isLastRowFull && prev.length >= MAX_KEYBOARD_ROWS) {
+                toast.error(`已达到最大行数（${MAX_KEYBOARD_ROWS}行），无法再添加按钮`);
+                return prev;
+            }
+
             const newKeyboard = prev.map((row) => ({
                 ...row,
                 buttons: row.buttons.map((btn) => ({ ...btn })),
             }));
-            const lastRow = newKeyboard[newKeyboard.length - 1];
-            if (lastRow && lastRow.buttons.length < MAX_BUTTONS_PER_ROW) {
+
+            const clonedLastRow = newKeyboard[newKeyboard.length - 1];
+            if (clonedLastRow && clonedLastRow.buttons.length < MAX_BUTTONS_PER_ROW) {
                 const updatedRow: KeyboardRow = {
-                    ...lastRow,
+                    ...clonedLastRow,
                     buttons: [
-                        ...lastRow.buttons,
+                        ...clonedLastRow.buttons,
                         {
                             id: `btn-${timestamp}`,
                             text: "New Button",
@@ -82,7 +91,7 @@ export const useKeyboardActions = (
                     ],
                 };
                 newKeyboard[newKeyboard.length - 1] = updatedRow;
-            } else {
+            } else if (newKeyboard.length < MAX_KEYBOARD_ROWS) {
                 newKeyboard.push({
                     id: `row-${timestamp}`,
                     buttons: [
@@ -93,6 +102,9 @@ export const useKeyboardActions = (
                         },
                     ],
                 });
+            } else {
+                toast.error(`已达到最大行数（${MAX_KEYBOARD_ROWS}行），无法再添加按钮`);
+                return prev;
             }
             if (lastRow && lastRow.buttons.length >= MAX_BUTTONS_PER_ROW) {
                 toast.warning(`每行最多 ${MAX_BUTTONS_PER_ROW} 个按钮，已新建一行。`);

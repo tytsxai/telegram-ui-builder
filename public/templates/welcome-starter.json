@@ -1,0 +1,28 @@
+{
+  "id": "welcome-starter",
+  "name": "欢迎引导 + 快捷入口",
+  "summary": "首访欢迎语 + 4 个常用入口，帮助用户快速找到操作路径。",
+  "parse_mode": "HTML",
+  "message_type": "text",
+  "message_content": "👋 欢迎来到 {brand}！\n我可以帮你快速查看功能、定价或安排真人支持。请选择下方入口开始体验。",
+  "media_url": "",
+  "keyboard": [
+    {
+      "id": "welcome-row-1",
+      "buttons": [
+        { "id": "welcome-btn-1", "text": "🚀 立即开始", "callback_data": "cta_start" },
+        { "id": "welcome-btn-2", "text": "产品介绍", "url": "https://example.com/product" },
+        { "id": "welcome-btn-3", "text": "和真人交流", "callback_data": "human_handoff" }
+      ]
+    },
+    {
+      "id": "welcome-row-2",
+      "buttons": [
+        { "id": "welcome-btn-4", "text": "查看定价", "url": "https://example.com/pricing" },
+        { "id": "welcome-btn-5", "text": "最近更新", "callback_data": "whats_new" }
+      ]
+    }
+  ],
+  "category": "onboarding",
+  "estimated_time": "30s"
+}
