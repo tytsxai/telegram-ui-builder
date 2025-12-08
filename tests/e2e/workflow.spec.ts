@@ -1,10 +1,13 @@
 import { test, expect } from "@playwright/test";
+import { setupSupabaseMock } from "../fixtures/supabaseMock";
 
-test.skip(process.env.CI === "true", "E2E flows need UI-aligned selectors; skip in CI for now.");
+test.beforeEach(async ({ page }) => {
+  await setupSupabaseMock(page);
+});
 
 test("happy path: visit home, export JSON, open flow diagram", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText(/Telegram UI Builder|Telegram Bot/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Telegram Bot/i })).toBeVisible();
 
   // Open flow diagram
   await page.getByRole("button", { name: /关系图|Flow Diagram|diagram/i }).click({ trial: true }).catch(() => {});

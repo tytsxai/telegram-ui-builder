@@ -121,7 +121,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
             <div className="space-y-2">
                 <h3 className="text-sm font-medium text-muted-foreground">模版列表</h3>
                 <Select value={currentScreenId} onValueChange={onLoadScreen}>
-                    <SelectTrigger>
+                    <SelectTrigger aria-label="模版列表选择" data-testid="template-select-trigger">
                         <SelectValue placeholder="选择模版..." />
                     </SelectTrigger>
                     <SelectContent>
@@ -192,7 +192,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                     </div>
                     <div className="space-y-1">
                         <Select value={entryValue} onValueChange={(val) => onSetEntry(val === "none" ? null : val)}>
-                            <SelectTrigger>
+                            <SelectTrigger aria-label="入口模版选择" data-testid="entry-select-trigger">
                                 <SelectValue placeholder="选择入口模版..." />
                             </SelectTrigger>
                             <SelectContent>

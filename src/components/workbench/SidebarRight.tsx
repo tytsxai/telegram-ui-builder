@@ -58,9 +58,10 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                 <h3 className="text-sm font-medium text-muted-foreground">属性设置</h3>
 
                 <div className="space-y-2">
-                    <Label>模版名称</Label>
+                    <Label htmlFor="screen-name">模版名称</Label>
                     <div className="flex gap-2">
                         <Input
+                            id="screen-name"
                             placeholder="输入名称..."
                             value={newScreenName}
                             onChange={(e) => onNewScreenNameChange(e.target.value)}
@@ -86,8 +87,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                 <h3 className="text-sm font-medium text-muted-foreground">消息内容</h3>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="space-y-1">
-                        <Label>Parse Mode</Label>
+                        <Label htmlFor="parse-mode-select">Parse Mode</Label>
                         <select
+                            id="parse-mode-select"
                             value={parseMode}
                             onChange={(e) => onParseModeChange(e.target.value as "HTML" | "MarkdownV2")}
                             className="w-full h-8 rounded border bg-background text-foreground text-xs px-2"
@@ -97,8 +99,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                         </select>
                     </div>
                     <div className="space-y-1">
-                        <Label>消息类型</Label>
+                        <Label htmlFor="message-type-select">消息类型</Label>
                         <select
+                            id="message-type-select"
                             value={messageType}
                             onChange={(e) => onMessageTypeChange(e.target.value as "text" | "photo" | "video")}
                             className="w-full h-8 rounded border bg-background text-foreground text-xs px-2"
@@ -111,8 +114,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                 </div>
                 {messageType !== "text" && (
                     <div className="space-y-2">
-                        <Label>媒体 URL</Label>
+                        <Label htmlFor="media-url">媒体 URL</Label>
                         <Input
+                            id="media-url"
                             placeholder="https://..."
                             value={mediaUrl}
                             onChange={(e) => onMediaUrlChange(e.target.value)}

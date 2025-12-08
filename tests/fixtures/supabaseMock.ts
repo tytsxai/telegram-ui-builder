@@ -156,22 +156,23 @@ export const setupSupabaseMock = async (page: Page, initialState?: Partial<Supab
 
     const body = parseBody(route);
     if (method === "POST") {
-      const newScreen: Screen = {
-        id: (body.id as string) ?? `screen-${state.screens.length + 1}`,
-        name: (body.name as string) ?? "Untitled",
-        message_content: (body.message_content as string) ?? "",
-        keyboard: (body.keyboard as Screen["keyboard"]) ?? [],
-        parse_mode: body.parse_mode as Screen["parse_mode"],
-        message_type: body.message_type as Screen["message_type"],
-        media_url: (body.media_url as string | null | undefined) ?? null,
-        share_token: (body.share_token as string | null | undefined) ?? null,
-        is_public: (body.is_public as boolean | null | undefined) ?? false,
-        created_at: (body.created_at as string | null | undefined) ?? new Date().toISOString(),
-        updated_at: (body.updated_at as string | null | undefined) ?? new Date().toISOString(),
-        user_id: (body.user_id as string | null | undefined) ?? mockUser.id,
-      };
-      state.screens.push(newScreen);
-      return respond(route, 201, newScreen);
+      const payloads = Array.isArray(body) ? body : [body];
+      const createdScreens = payloads.map((payload, idx) => ({
+        id: (payload as { id?: string }).id ?? `screen-${state.screens.length + idx + 1}`,
+        name: (payload as { name?: string }).name ?? "Untitled",
+        message_content: (payload as { message_content?: string }).message_content ?? "",
+        keyboard: (payload as { keyboard?: Screen["keyboard"] }).keyboard ?? [],
+        parse_mode: (payload as { parse_mode?: Screen["parse_mode"] }).parse_mode,
+        message_type: (payload as { message_type?: Screen["message_type"] }).message_type,
+        media_url: (payload as { media_url?: string | null }).media_url ?? null,
+        share_token: (payload as { share_token?: string | null }).share_token ?? null,
+        is_public: (payload as { is_public?: boolean | null }).is_public ?? false,
+        created_at: (payload as { created_at?: string | null }).created_at ?? new Date().toISOString(),
+        updated_at: (payload as { updated_at?: string | null }).updated_at ?? new Date().toISOString(),
+        user_id: (payload as { user_id?: string | null }).user_id ?? mockUser.id,
+      })) as Screen[];
+      state.screens.push(...createdScreens);
+      return respond(route, 201, payloads.length === 1 ? createdScreens[0] : createdScreens);
     }
 
     if (method === "PATCH") {
