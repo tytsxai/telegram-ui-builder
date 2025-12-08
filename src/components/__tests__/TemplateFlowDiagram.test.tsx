@@ -4,20 +4,29 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import TemplateFlowDiagram from "../TemplateFlowDiagram";
 import { __getLatestProps } from "reactflow";
 
+type MockNode = { id: string; data?: { label?: React.ReactNode }; position?: { x: number; y: number } };
+type MockChange = { id: string; position?: { x: number; y: number } };
+type MockReactFlowProps = {
+  nodes?: MockNode[];
+  children?: React.ReactNode;
+  onInit?: (instance: { fitView: ReturnType<typeof vi.fn>; setCenter: ReturnType<typeof vi.fn> }) => void;
+  onNodesChange?: (changes: MockChange[]) => void;
+};
+
 vi.mock("reactflow", () => {
   const MarkerType = { ArrowClosed: "arrowclosed" };
   const Position = { Right: "right", Left: "left" };
   const instance = { fitView: vi.fn(), setCenter: vi.fn() };
-  let latestProps: unknown = null;
+  let latestProps: MockReactFlowProps | null = null;
 
-  const ReactFlow = (props: any) => {
+  const ReactFlow = (props: MockReactFlowProps) => {
     latestProps = props;
     React.useEffect(() => {
       props.onInit?.(instance);
     }, [props]);
     return (
       <div data-testid="reactflow">
-        {props.nodes?.map((node: any) => (
+        {props.nodes?.map((node) => (
           <div key={node.id} data-node-id={node.id}>
             {typeof node.data?.label === "string" ? node.data.label : node.data?.label}
           </div>
@@ -27,14 +36,14 @@ vi.mock("reactflow", () => {
     );
   };
 
-  const useNodesState = (initial: any) => {
+  const useNodesState = (initial: MockNode[]) => {
     const [state, setState] = React.useState(initial);
-    const onChange = React.useCallback((changes: any[]) => {
-      setState((prev: any[]) =>
+    const onChange = React.useCallback((changes: MockChange[]) => {
+      setState((prev: MockNode[]) =>
         prev.map((node) => {
-          const change = changes.find((c) => c.id === node.id && (c as any).position);
-          if (change && (change as any).position) {
-            return { ...node, position: (change as any).position };
+          const change = changes.find((c) => c.id === node.id && c.position);
+          if (change && change.position) {
+            return { ...node, position: change.position };
           }
           return node;
         }),
@@ -43,15 +52,15 @@ vi.mock("reactflow", () => {
     return [state, setState, onChange] as const;
   };
 
-  const useEdgesState = (initial: any) => {
+  const useEdgesState = (initial: unknown[]) => {
     const [state, setState] = React.useState(initial);
     const onChange = React.useCallback(() => {}, []);
     return [state, setState, onChange] as const;
   };
 
-  const Background = ({ children }: any) => <div data-testid="background">{children}</div>;
-  const Controls = ({ children }: any) => <div data-testid="controls">{children}</div>;
-  const MiniMap = ({ children }: any) => <div data-testid="minimap">{children}</div>;
+  const Background = ({ children }: React.PropsWithChildren) => <div data-testid="background">{children}</div>;
+  const Controls = ({ children }: React.PropsWithChildren) => <div data-testid="controls">{children}</div>;
+  const MiniMap = ({ children }: React.PropsWithChildren) => <div data-testid="minimap">{children}</div>;
 
   return {
     __esModule: true,
@@ -137,12 +146,13 @@ describe("TemplateFlowDiagram", () => {
       />,
     );
 
-    expect((__getLatestProps as () => any)()?.nodes.find((n: any) => n.id === "c")).toBeDefined();
+    const getLatestProps = __getLatestProps as unknown as () => MockReactFlowProps | null;
+    expect(getLatestProps()?.nodes?.find((n) => n.id === "c")).toBeDefined();
 
     fireEvent.click(screen.getByLabelText("隐藏孤立"));
 
     await waitFor(() => {
-      expect((__getLatestProps as () => any)()?.nodes.find((n: any) => n.id === "c")).toBeUndefined();
+      expect(getLatestProps()?.nodes?.find((n) => n.id === "c")).toBeUndefined();
     });
   });
 
@@ -160,8 +170,9 @@ describe("TemplateFlowDiagram", () => {
     );
 
     await waitFor(() => {
-      const props: any = (__getLatestProps as () => any)();
-      expect(props?.nodes.find((n: any) => n.id === "home")?.position).toMatchObject({ x: 120, y: 80 });
+      const getLatestProps = __getLatestProps as unknown as () => MockReactFlowProps | null;
+      const props = getLatestProps();
+      expect(props?.nodes?.find((n) => n.id === "home")?.position).toMatchObject({ x: 120, y: 80 });
     });
   });
 });

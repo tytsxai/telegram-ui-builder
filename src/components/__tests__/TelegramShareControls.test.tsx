@@ -6,19 +6,26 @@ import type { Screen } from "@/types/telegram";
 import type { User } from "@supabase/supabase-js";
 
 vi.mock("@/components/ui/select", () => {
-  const Select = ({ value, onValueChange, children }: any) => (
-    <div data-value={value} onClick={(e) => {
-      const target = e.target as HTMLElement;
-      const val = target.getAttribute?.("data-value");
-      if (val && onValueChange) onValueChange(val);
-    }}>
+  type SelectProps = { value?: string; onValueChange?: (value: string) => void; children?: React.ReactNode };
+  type SimpleProps = { children?: React.ReactNode };
+  type SelectItemProps = { value: string; children?: React.ReactNode };
+
+  const Select = ({ value, onValueChange, children }: SelectProps) => (
+    <div
+      data-value={value}
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        const val = target.getAttribute?.("data-value");
+        if (val && onValueChange) onValueChange(val);
+      }}
+    >
       {children}
     </div>
   );
-  const SelectTrigger = ({ children }: any) => <button type="button">{children}</button>;
-  const SelectValue = ({ placeholder }: any) => <span>{placeholder}</span>;
-  const SelectContent = ({ children }: any) => <div>{children}</div>;
-  const SelectItem = ({ value, children }: any) => <div data-value={value}>{children}</div>;
+  const SelectTrigger = ({ children }: SimpleProps) => <button type="button">{children}</button>;
+  const SelectValue = ({ placeholder }: { placeholder?: string }) => <span>{placeholder}</span>;
+  const SelectContent = ({ children }: SimpleProps) => <div>{children}</div>;
+  const SelectItem = ({ value, children }: SelectItemProps) => <div data-value={value}>{children}</div>;
   return { Select, SelectTrigger, SelectValue, SelectContent, SelectItem };
 });
 
