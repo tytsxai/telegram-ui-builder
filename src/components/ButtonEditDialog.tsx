@@ -5,9 +5,11 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import type { KeyboardButton, Screen } from "@/types/telegram";
 import { BUTTON_TEXT_MAX, CALLBACK_DATA_MAX_BYTES, CALLBACK_DATA_ERROR_MESSAGE, getByteLength } from "@/lib/validation";
 import { toast } from "sonner";
+import { buildCallbackData } from "@/lib/callbackHelper";
 
 export type ButtonValidationErrors = { text?: string; callback?: string; url?: string; link?: string };
 
@@ -66,17 +68,24 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
   );
   const [search, setSearch] = useState("");
   const [errors, setErrors] = useState<{ text?: string; callback?: string; url?: string; link?: string }>({});
+  const [callbackPrefix, setCallbackPrefix] = useState("btn");
+  const [ttlSeconds, setTtlSeconds] = useState<string>("300");
+  const [nonceEnabled, setNonceEnabled] = useState(true);
 
   useEffect(() => {
     setEditedButton(button);
     setActionType(button.url ? "url" : button.linked_screen_id ? "link" : "callback");
     setErrors({});
+    setCallbackPrefix("btn");
+    setTtlSeconds("300");
+    setNonceEnabled(true);
   }, [button]);
 
   const calcBytes = getByteLength;
   const textLength = editedButton.text?.length ?? 0;
   const callbackBytes = calcBytes(editedButton.callback_data ?? "");
   const callbackError = errors.callback || (actionType === "callback" && callbackBytes > CALLBACK_DATA_MAX_BYTES ? CALLBACK_DATA_ERROR_MESSAGE : undefined);
+  const nearLimit = callbackBytes > CALLBACK_DATA_MAX_BYTES - 8;
 
   // 智能按钮命名：当选择链接模板时，自动添加后缀
   const handleScreenSelect = (screenId: string) => {
@@ -113,6 +122,26 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
       text: newText
     });
     setErrors((prev) => ({ ...prev, link: undefined, text: newText ? undefined : "按钮文本不能为空" }));
+  };
+
+  const handleGenerateCallback = () => {
+    const ttlValue = Number(ttlSeconds);
+    const ttl = Number.isFinite(ttlValue) && ttlValue > 0 ? ttlValue : undefined;
+    const actionSlug = (editedButton.text || editedButton.id || "action").toLowerCase().replace(/\s+/g, "_");
+    try {
+      const { value, bytes } = buildCallbackData({
+        prefix: callbackPrefix,
+        action: actionSlug || "action",
+        data: { id: editedButton.id, text: editedButton.text },
+        ttlSeconds: ttl,
+        nonce: nonceEnabled,
+      });
+      setEditedButton({ ...editedButton, callback_data: value });
+      setErrors((prev) => ({ ...prev, callback: bytes > CALLBACK_DATA_MAX_BYTES ? CALLBACK_DATA_ERROR_MESSAGE : undefined }));
+    } catch (e) {
+      console.error(e);
+      toast.error("生成回调数据失败");
+    }
   };
 
   const handleSave = () => {
@@ -189,7 +218,51 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
                 <span className={callbackError ? "text-destructive" : "text-muted-foreground"}>
                   {callbackError ?? "用于识别按钮点击的数据，会发送给机器人"}
                 </span>
-                <span className={callbackError ? "text-destructive" : "text-muted-foreground"}>{callbackBytes}/{CALLBACK_DATA_MAX_BYTES}B</span>
+                <span className={callbackError ? "text-destructive" : nearLimit ? "text-amber-600" : "text-muted-foreground"}>
+                  {callbackBytes}/{CALLBACK_DATA_MAX_BYTES}B{nearLimit ? " · 接近上限" : ""}
+                </span>
+              </div>
+              <div className="rounded-md border bg-muted/30 p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium text-foreground">回调助手</div>
+                  <span className="text-[11px] text-muted-foreground">TTL/nonce 控制，自动截断</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="cb-prefix">命名空间/前缀</Label>
+                    <Input
+                      id="cb-prefix"
+                      value={callbackPrefix}
+                      onChange={(e) => setCallbackPrefix(e.target.value)}
+                      placeholder="btn"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="cb-ttl">TTL (秒，可选)</Label>
+                    <Input
+                      id="cb-ttl"
+                      type="number"
+                      min="0"
+                      value={ttlSeconds}
+                      onChange={(e) => setTtlSeconds(e.target.value)}
+                      placeholder="300"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="cb-nonce"
+                      checked={nonceEnabled}
+                      onCheckedChange={(val) => setNonceEnabled(val)}
+                    />
+                    <Label htmlFor="cb-nonce">包含 nonce 防重放</Label>
+                  </div>
+                  {nearLimit && <span className="text-xs text-amber-600">已接近 64B 限制</span>}
+                </div>
+                <Button variant="secondary" size="sm" onClick={handleGenerateCallback}>
+                  智能生成 callback_data
+                </Button>
               </div>
             </TabsContent>
             
