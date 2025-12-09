@@ -159,6 +159,15 @@ export const useBuilderStore = () => {
     loadTemplate,
   } = useChatState();
 
+  // Track whether current editor state differs from last saved snapshot
+  const unsavedChanges = useMemo(() => {
+    if (!lastSavedSnapshot) return true;
+    return (
+      lastSavedSnapshot.messageContent !== messageContent ||
+      JSON.stringify(lastSavedSnapshot.keyboard) !== JSON.stringify(keyboard)
+    );
+  }, [lastSavedSnapshot, messageContent, keyboard]);
+
   const completeOnboardingStep = useCallback((step: keyof OnboardingProgress) => {
     setOnboardingProgress((prev) => (prev[step] ? prev : { ...prev, [step]: true }));
   }, []);
@@ -650,7 +659,7 @@ export const useBuilderStore = () => {
         setRenameDialogOpen(false);
       }
     }
-  }, [currentScreenId, isOffline, queueUpdateOperation, renameValue, updateScreen]);
+  }, [currentScreenId, isOffline, queueUpdateOperation, renameValue, updateScreen, setScreens]);
 
   const handleCopyJSON = useCallback(async () => {
     try {
@@ -1074,10 +1083,14 @@ export const useBuilderStore = () => {
     [keyboard, lastSavedSnapshot, serializeMessagePayload]
   );
 
-  const pendingItems = useMemo(() => {
-    void pendingQueueSize;
-    return readPendingOps(user?.id);
-  }, [user?.id, pendingQueueSize]);
+  const builderStatus = {
+    isOnline: !isOffline,
+    pendingCount: pendingQueueSize,
+    unsaved: hasUnsavedChanges,
+    lastSavedAt: lastSavedSnapshot?.messageContent ? "刚刚" : null,
+  };
+
+  const pendingItems = readPendingOps(user?.id);
 
   const leftPanelProps = useMemo(() => ({
     user,
@@ -1158,6 +1171,16 @@ export const useBuilderStore = () => {
     shareLoading,
     user,
   ]);
+
+  const workbenchStatusProps = useMemo(
+    () => ({
+      pendingCount: builderStatus.pendingCount,
+      unsaved: builderStatus.unsaved,
+      lastSavedAt: builderStatus.lastSavedAt,
+      isOnline: builderStatus.isOnline,
+    }),
+    [builderStatus.isOnline, builderStatus.lastSavedAt, builderStatus.pendingCount, builderStatus.unsaved]
+  );
 
   const onboardingVisible = useMemo(
     () => !onboardingDismissed && Object.values(onboardingProgress).some((value) => !value),

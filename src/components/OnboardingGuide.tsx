@@ -30,11 +30,16 @@ export const OnboardingGuide = ({
 }: OnboardingGuideProps) => {
   const skipButtonRef = useRef<HTMLButtonElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (visible) {
       previousFocusRef.current = document.activeElement as HTMLElement | null;
-      requestAnimationFrame(() => skipButtonRef.current?.focus());
+      requestAnimationFrame(() => {
+        // Prefer focusing the primary CTA (open template) if present, otherwise the skip button.
+        const primary = cardRef.current?.querySelector<HTMLButtonElement>("[data-onboarding-primary]");
+        (primary ?? skipButtonRef.current)?.focus();
+      });
     }
   }, [visible]);
 
@@ -77,8 +82,9 @@ export const OnboardingGuide = ({
   const doneCount = [progress.template, progress.preview, progress.share].filter(Boolean).length;
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[min(960px,92vw)] pointer-events-none">
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[min(960px,92vw)] px-3 sm:px-0 pointer-events-none">
       <Card
+        ref={cardRef}
         role="dialog"
         aria-modal="true"
         aria-label="一次性引导"
@@ -89,9 +95,9 @@ export const OnboardingGuide = ({
             handleDismiss();
           }
         }}
-        className="pointer-events-auto bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 text-white border border-white/10 shadow-2xl"
+        className="pointer-events-auto bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 text-white border border-white/10 shadow-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
       >
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-4 md:p-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4 p-4 md:p-5">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-200 border-emerald-500/40">
@@ -125,13 +131,13 @@ export const OnboardingGuide = ({
           </div>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-3 p-4 md:p-6 pt-0">
+        <div className="grid md:grid-cols-3 gap-3 p-4 md:p-5 pt-0">
           {steps.map((step) => {
             const isDone = progress[step.key as keyof OnboardingProgress];
             return (
               <div
                 key={step.key}
-                className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm p-3 flex flex-col gap-2"
+                className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm p-3 flex flex-col gap-2 min-h-[140px]"
               >
                 <div className="flex items-center justify-between text-sm font-semibold">
                   <div className="flex items-center gap-2">
@@ -146,9 +152,10 @@ export const OnboardingGuide = ({
                 </div>
                 <p className="text-sm text-slate-200/80 leading-relaxed">{step.desc}</p>
                 <Button
+                  data-onboarding-primary={step.key === "template"}
                   variant={isDone ? "secondary" : "default"}
                   size="sm"
-                  className="justify-start"
+                  className="justify-start focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                   onClick={step.onAction}
                 >
                   {step.actionLabel}

@@ -150,4 +150,26 @@ All colors MUST be HSL.
   body {
     @apply text-foreground bg-background;
   }
+
+  /* Strong, accessible focus styles that work on dark surfaces */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px color-mix(in srgb, hsl(var(--ring)) 25%, transparent);
+  }
+
+  /* Ensure focus rings show on key interactive elements even if they use custom styles */
+  button:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [role="button"]:focus-visible,
+  [role="tab"]:focus-visible,
+  a:focus-visible,
+  [data-focus-visible-added]:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px color-mix(in srgb, hsl(var(--ring)) 25%, transparent);
+    border-color: hsl(var(--ring));
+  }
 }

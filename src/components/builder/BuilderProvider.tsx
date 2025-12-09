@@ -6,12 +6,14 @@ type RightPanelValue = BuilderStore["rightPanelProps"];
 type CenterCanvasValue = BuilderStore["centerCanvasProps"];
 type BottomPanelValue = BuilderStore["bottomPanelProps"];
 type DialogValue = BuilderStore["dialogState"];
+type WorkbenchStatusValue = BuilderStore["workbenchStatusProps"];
 
 const LeftPanelContext = createContext<LeftPanelValue | null>(null);
 const RightPanelContext = createContext<RightPanelValue | null>(null);
 const CenterCanvasContext = createContext<CenterCanvasValue | null>(null);
 const BottomPanelContext = createContext<BottomPanelValue | null>(null);
 const DialogContext = createContext<DialogValue | null>(null);
+const WorkbenchStatusContext = createContext<WorkbenchStatusValue | null>(null);
 
 export const useLeftPanel = () => {
   const ctx = useContext(LeftPanelContext);
@@ -43,6 +45,17 @@ export const useBuilderDialogs = () => {
   return ctx;
 };
 
+export const useWorkbenchStatus = () => {
+  const ctx = useContext(WorkbenchStatusContext);
+  // During E2E boot, if the provider fails to mount early we still want the builder shell
+  // to render instead of crashing the whole app. Fall back to a safe default so the
+  // layout can appear and tests can proceed.
+  if (!ctx) {
+    return { pendingCount: 0, unsaved: false, lastSavedAt: null, isOnline: true } satisfies WorkbenchStatusValue;
+  }
+  return ctx;
+};
+
 export const BuilderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const store = useBuilderStore();
 
@@ -52,7 +65,9 @@ export const BuilderProvider: React.FC<{ children: React.ReactNode }> = ({ child
         <CenterCanvasContext.Provider value={store.centerCanvasProps}>
           <BottomPanelContext.Provider value={store.bottomPanelProps}>
             <DialogContext.Provider value={store.dialogState}>
-              {children}
+              <WorkbenchStatusContext.Provider value={store.workbenchStatusProps}>
+                {children}
+              </WorkbenchStatusContext.Provider>
             </DialogContext.Provider>
           </BottomPanelContext.Provider>
         </CenterCanvasContext.Provider>

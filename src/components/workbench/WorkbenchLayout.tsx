@@ -4,12 +4,19 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { Badge } from "@/components/ui/badge";
+import { WifiOff, Wifi, Clock3, Loader2 } from "lucide-react";
+import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 
 interface WorkbenchLayoutProps {
   leftPanel: React.ReactNode;
   rightPanel: React.ReactNode;
   centerCanvas: React.ReactNode;
   bottomPanel: React.ReactNode;
+  pendingCount?: number;
+  unsaved?: boolean;
+  lastSavedAt?: string | null;
+  isOnline?: boolean;
 }
 
 export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
@@ -17,8 +24,14 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   rightPanel,
   centerCanvas,
   bottomPanel,
+  pendingCount = 0,
+  unsaved = false,
+  lastSavedAt = null,
+  isOnline = true,
 }) => {
   const [isBottomCollapsed, setIsBottomCollapsed] = useState(false);
+  const network = useNetworkStatus();
+  const online = isOnline ?? network.isOnline;
 
   // 默认在小屏下折叠底部面板，避免遮挡
   useEffect(() => {
@@ -48,6 +61,27 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
 
   return (
     <div className="h-screen w-full bg-transparent overflow-hidden">
+      <div
+        className="h-10 px-4 flex items-center gap-3 text-xs text-muted-foreground bg-card/60 backdrop-blur border-b border-border/50"
+        role="status"
+        aria-live="polite"
+      >
+        <Badge variant="secondary" className="flex items-center gap-1 bg-muted/70 border-border/70">
+          {online ? <Wifi className="w-3 h-3" aria-hidden /> : <WifiOff className="w-3 h-3" aria-hidden />}
+          <span>{online ? "在线" : "离线"}</span>
+        </Badge>
+
+        <div className="flex items-center gap-1" aria-label={`待同步操作 ${pendingCount} 条`}>
+          <Loader2 className={`w-3 h-3 ${pendingCount > 0 ? "text-amber-500 animate-spin" : "text-muted-foreground/60"}`} aria-hidden />
+          <span>待同步 {pendingCount}</span>
+        </div>
+
+        <div className="flex items-center gap-1" aria-label={unsaved ? "存在未保存更改" : `最近保存于 ${lastSavedAt ?? "未知"}`}>
+          <Clock3 className="w-3 h-3" aria-hidden />
+          {unsaved ? <span className="text-amber-500">未保存</span> : <span>已保存 {lastSavedAt ?? "刚刚"}</span>}
+        </div>
+      </div>
+
       <ResizablePanelGroup direction="horizontal">
         {/* Left Panel */}
         <ResizablePanel

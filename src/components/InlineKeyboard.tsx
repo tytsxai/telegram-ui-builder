@@ -415,7 +415,7 @@ const InlineKeyboard = React.memo(({
           screens={screens}
         />
       )}
-      <div className="space-y-4 mt-4">
+      <div className="space-y-4 mt-4" data-testid="inline-keyboard">
         {!readOnly && validationErrors.length > 0 && (
           <div
             className="rounded-md border border-destructive/30 bg-destructive/10 text-destructive text-xs px-3 py-2 space-y-1"
