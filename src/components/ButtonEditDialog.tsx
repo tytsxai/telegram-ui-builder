@@ -39,14 +39,14 @@ export const validateButtonFields = (
     nextErrors.link = "请选择要链接的模版";
   }
 
-    if (actionType !== "url") {
-      const value = button.callback_data ?? "";
-      if (!value.trim() && actionType === "callback") {
-        nextErrors.callback = "Callback data 不能为空";
-      } else if (calcBytes(value) > CALLBACK_DATA_MAX_BYTES) {
-        nextErrors.callback = CALLBACK_DATA_ERROR_MESSAGE;
-      }
+  if (actionType !== "url") {
+    const value = button.callback_data ?? "";
+    if (!value.trim() && actionType === "callback") {
+      nextErrors.callback = "Callback data 不能为空";
+    } else if (calcBytes(value) > CALLBACK_DATA_MAX_BYTES) {
+      nextErrors.callback = CALLBACK_DATA_ERROR_MESSAGE;
     }
+  }
 
   return nextErrors;
 };
@@ -149,7 +149,9 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
     setErrors(newErrors);
     const hasError = Object.values(newErrors).some(Boolean);
     if (hasError) {
-      toast.error("请修正高亮字段后再保存");
+      // Surface the first error prominently
+      const firstError = newErrors.text || newErrors.callback || newErrors.url || newErrors.link;
+      toast.error(firstError ?? "请修正高亮字段后再保存");
       return;
     }
     
@@ -159,9 +161,16 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
     if (actionType === "link" && editedButton.linked_screen_id) {
       callbackData = `goto_screen_${editedButton.linked_screen_id}`;
     } else if (actionType === "callback") {
-      callbackData = editedButton.callback_data || `btn_${Date.now()}`;
+      // If provided callback exceeds limit, hard-block save with error
+      const bytes = getByteLength(editedButton.callback_data || "");
+      if (!editedButton.callback_data || bytes > CALLBACK_DATA_MAX_BYTES) {
+        setErrors((prev) => ({ ...prev, callback: CALLBACK_DATA_ERROR_MESSAGE }));
+        toast.error(CALLBACK_DATA_ERROR_MESSAGE);
+        return;
+      }
+      callbackData = editedButton.callback_data;
     }
-    
+
     const updated: KeyboardButton = {
       id: editedButton.id,
       text: editedButton.text,

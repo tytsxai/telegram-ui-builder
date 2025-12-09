@@ -98,6 +98,14 @@ export const validateButton = (button: unknown) => {
   return result.data;
 };
 
+export const validateCallbackData = (value: string) => {
+  const bytes = getByteLength(value);
+  if (bytes > CALLBACK_DATA_MAX_BYTES) {
+    throw new Error(CALLBACK_DATA_ERROR_MESSAGE);
+  }
+  return value;
+};
+
 /**
  * 验证键盘数据
  */
