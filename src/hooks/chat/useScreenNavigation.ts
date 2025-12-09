@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Screen } from '@/types/telegram';
 
 const ENTRY_KEY = "telegram_ui_entry_screen";
+const MAX_HISTORY = 100;
 
 export const isEntrySet = (entryId: string | null, screens: Screen[]) =>
     !!entryId && screens.some((s) => s.id === entryId);
@@ -66,7 +67,10 @@ export const useScreenNavigation = (
 
     const handleNavigateToScreen = useCallback((screenId: string) => {
         setCurrentScreenId(screenId);
-        setNavigationHistory((prev) => [...prev, screenId]);
+        setNavigationHistory((prev) => {
+            const next = [...prev, screenId];
+            return next.length > MAX_HISTORY ? next.slice(-MAX_HISTORY) : next;
+        });
     }, []);
 
     const handleSetEntry = useCallback((screenId: string | null) => {
@@ -78,6 +82,21 @@ export const useScreenNavigation = (
             handleNavigateToScreen(entryScreenId);
         }
     }, [entryScreenId, screens, handleNavigateToScreen]);
+
+    // Cleanup navigation history and current screen when screens list changes
+    useEffect(() => {
+        const ids = new Set(screens.map((s) => s.id));
+        setNavigationHistory((prev) => {
+            const filtered = prev.filter((id) => ids.has(id));
+            const clipped = filtered.length > MAX_HISTORY ? filtered.slice(-MAX_HISTORY) : filtered;
+            const unchanged = clipped.length === prev.length && clipped.every((id, idx) => id === prev[idx]);
+            return unchanged ? prev : clipped;
+        });
+        setCurrentScreenId((prev) => {
+            if (prev && ids.has(prev)) return prev;
+            return undefined;
+        });
+    }, [screens, navigationHistory]);
 
     return {
         currentScreenId,
