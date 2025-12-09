@@ -8,6 +8,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "preview": "vite preview",
     "supabase:types": "npx supabase@latest gen types typescript --project-id $SUPABASE_PROJECT_REF --schema public > src/integrations/supabase/types.ts",
     "check:supabase-types": "npm run supabase:types && git diff --exit-code -- src/integrations/supabase/types.ts",

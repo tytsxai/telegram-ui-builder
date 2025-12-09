@@ -1,46 +1,90 @@
 # Telegram UI Components
 
-Telegram UI Components 是一个交互式可视化工作台，用来设计 Telegram 机器人消息和带 inline keyboard 的对话流程。它提供完整的全屏编辑器、关系图、云端/本地持久化、导入导出和一键分享，让你从「构思对话」到「可直接接入 Bot 的 JSON/代码」一路打通。
+一个可视化工作台，用来设计 Telegram 机器人消息和 inline keyboard 流程；带全屏编辑器、关系图、离线/云端持久化、导入导出、一键分享。Built with Vite + React + TypeScript + Tailwind + shadcn-ui.
 
-An interactive toolkit for building Telegram-style chat flows with inline keyboards. It ships with a full-screen editor, Supabase-backed persistence (with local fallback), import/export helpers, and shareable previews—all built on Vite, React, TypeScript, Tailwind CSS, and shadcn-ui.
+## 目录 / Table of contents
+- TL;DR (最短路径)
+- 开发环境搭建（含 Supabase）
+- 常用脚本
+- 测试与质量门禁
+- 功能概览
+- 适用场景
+- 参考文档
+- Workbench 提示
+- 编辑方式
+- 部署
+- 质量门禁与运维
 
-## Features
-- Visual message composer with Markdown-style formatting, live preview, and inline keyboard builder
-- Screen manager for branching flows with undo/redo history, circular reference detection, and safe delete guardrails
-- Supabase storage with ready-to-use schema, offline queue, and localStorage fallback when cloud tables are unavailable
-- Import/export for JSON and Telegram-compatible payloads, plus share tokens for quick demos or handoff to teammates
-
-适用场景示例：
-- 设计多轮问答、分支问卷、引导类机器人对话
-- 为运营/产品搭建可视化工作台，避免直接改 JSON
-- 快速验证文案和按钮布局，再接入真实机器人后端
-
-## Quick start
-Prerequisites: Node.js and npm.
-
-```sh
-git clone <your-repo-url>
+## TL;DR
+```bash
+git clone https://github.com/tytsxai/telegram-ui-components.git
 cd telegram-ui-components
-npm install
+npm ci
+cp .env.example .env # 填写你的 Supabase 项目/本地 dev 实例
 npm run dev
+# 浏览器打开 http://localhost:5173
 ```
 
-## Environment variables
-The repo includes a `.env` file with a default Supabase project for previews. To point at your own project, copy `.env.example` to `.env` (or edit the existing file) and update:
+## 开发环境搭建（含 Supabase）
+Prereqs: Node.js ≥18, npm.
 
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_PUBLISHABLE_KEY`
-- `VITE_SUPABASE_STORAGE_URL` (if applicable to your setup)
+1) 环境变量（`.env`，已提供模板）
 
-## Useful scripts
-- `npm run dev` — start the development server with hot reload
-- `npm run build` — create a production build in `dist/`
-- `npm run preview` — preview the production build locally
-- `npm run lint` — run ESLint across the codebase
-- `npm run test` — run unit tests (Vitest + jsdom)
-- `npm run test:e2e` — run Playwright E2E suite (requires dev server env)
+| Key | 说明 |
+| --- | --- |
+| `VITE_SUPABASE_URL` | Supabase 项目 URL，或本地 `supabase start` 地址 |
+| `VITE_SUPABASE_PROJECT_ID` | 项目标识，用于迁移/类型生成 |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | anon/publishable key，前端调用 Supabase 用 |
+| `VITE_SUPABASE_STORAGE_URL` | 可选，若使用自定义 Storage 域名 |
+| `SUPABASE_SERVICE_ROLE_KEY` | 可选，脚本/烟雾测试使用（服务端安全存储） |
+| `SUPABASE_ACCESS_TOKEN` | 可选，`supabase gen types` CLI 登录用 |
 
-## Workbench guide
+2) 初始化数据库（任选其一）
+- 已有项目：执行 `scripts/supabase/schema.sql` 或 `supabase db push` 应用 `supabase/migrations/*`。
+- 本地 dev：安装 Supabase CLI，运行 `supabase start`，然后 `supabase db push`。
+
+3) 生成/校验类型（需要 `SUPABASE_PROJECT_REF` 可用）
+```bash
+SUPABASE_PROJECT_REF=<ref> npm run supabase:types
+SUPABASE_PROJECT_REF=<ref> npm run check:supabase-types
+```
+
+## 常用脚本
+| 命令 | 用途 |
+| --- | --- |
+| `npm run dev` | 本地开发（Vite） |
+| `npm run build` | 生产构建 |
+| `npm run preview` | 本地预览生产构建 |
+| `npm test` | Vitest 单元/集成测试 |
+| `npm run lint` / `npm run lint:fix` | ESLint 检查/修复 |
+| `npm run test:e2e` | Playwright（需先 `npm run dev` 并提供 Supabase env） |
+| `npm run smoke:rls` | Supabase RLS 烟雾测试（需 service role） |
+
+## 测试与质量门禁
+- 本地提交前：`npm run lint && npm test && npm run build`。
+- 涉及 Supabase schema/type：运行 `check:supabase-types` 并确保无 diff。
+- E2E：启动本地 dev + Supabase，再跑 `npm run test:e2e`。
+
+## 功能概览
+- 消息编辑器：Markdown 风格格式化、实时预览、inline keyboard 构建。
+- 屏幕管理：分支流程、撤销重做、循环检测、安全删除提示。
+- 持久化：Supabase 云端 + 本地离线队列；RLS 保护；分享/入口 token 管理。
+- 导入导出：JSON/Telegram 兼容格式；模板库；分享页可复制到个人账户。
+
+## 适用场景
+- 多轮问答、问卷、引导类机器人对话设计。
+- 为运营/产品提供可视化工作台，避免直接编辑 JSON。
+- 先验证文案/按钮布局，再对接真实机器人后端。
+
+## 参考文档
+- `docs/improvement-plan.md`（整体规划）
+- `docs/backend-readiness.md`（Supabase/RLS 检查清单）
+- `docs/cloud-persistence.md`（云持久化步骤）
+- `docs/ops-runbook.md`（同步/重试运维）
+- `docs/ui-test-plan.md`（UI 测试清单）
+- `docs/telemetry.md`（同步遥测接入）
+
+## Workbench 提示
 - **Entry & share**: Pick an entry screen from the left sidebar before exporting/sharing; sharing is blocked if the entry is missing or any button points to a deleted screen. Use “生成/复制入口链接” to publish and copy, “刷新链接” to rotate the token, and “取消公开” to revoke. Public pages live at `/share/:token`, show author/time metadata, and expose a “复制并编辑” action for signed-in users.
 - **Template library**: Click the `模板库` button in the canvas toolbar to load curated starters from `public/templates/*.json`. Cards auto-validate keyboard/message content; use the refresh icon if the list fails to load. On first visit, the onboarding banner guides you to open the library.
 - **Keyboard editor**: Inline edit or drag rows/buttons; double-click to rename quickly. Open button settings to choose callback/URL/link targets with byte counters (64B limit) and automatic text suffixes when linking screens. Row and button count limits are enforced with warnings, and overflow shows a red hint instead of breaking layout.
@@ -54,7 +98,7 @@ The repo includes a `.env` file with a default Supabase project for previews. To
 ## Deployment
 Run `npm run build`, then deploy the generated `dist/` folder to any static host (e.g., Vercel, Netlify, Cloudflare Pages) or serve it with your preferred Node/edge runtime. Ensure the environment variables for Supabase are configured in your hosting platform.
 
-## Quality gates & ops
+## 质量门禁与运维
 - CI gates: lint → unit tests → build → Playwright e2e (see `.github/workflows/ci.yml`; provide Supabase test env or mock for e2e).
 - Runbook: `docs/ops-runbook.md` covers Supabase backoff, offline queue, rate-limit guidance, and recovery steps.
 - Sync badges in the UI surface share/layout request status with correlation IDs for debugging.‬‬
