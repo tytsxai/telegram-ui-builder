@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Screen } from '@/types/telegram';
 
 const ENTRY_KEY = "telegram_ui_entry_screen";
@@ -33,15 +33,21 @@ export const useScreenNavigation = (
     }, [entryScreenId]);
 
     // Keep entry consistent with available screens
+    const hasSeenScreens = useRef(false);
     useEffect(() => {
+        if (screens.length === 0) {
+            // 避免在首次加载前清空入口；只有在曾经加载过列表后才清空
+            if (hasSeenScreens.current) {
+                setEntryScreenId(null);
+            }
+            return;
+        }
+        hasSeenScreens.current = true;
         setEntryScreenId((prev) => {
-            if (screens.length === 0) {
-                return null;
+            if (prev) {
+                return screens.some((s) => s.id === prev) ? prev : null;
             }
-            if (prev && screens.some((s) => s.id === prev)) {
-                return prev;
-            }
-            if (!prev && screens.length === 1) {
+            if (screens.length === 1) {
                 return screens[0].id;
             }
             return null;
