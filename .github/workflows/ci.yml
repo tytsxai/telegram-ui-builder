@@ -61,5 +61,7 @@ jobs:
       - name: Run Playwright tests
         run: npm run test:e2e -- --reporter=dot
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'http://localhost:54321' }}
+          # E2E uses a mocked Supabase API but relies on supabase-js's derived storage key.
+          # Keep the fallback URL's hostname aligned with `tests/fixtures/supabaseMock.ts`.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://imblnkgnerlewrhdzqis.supabase.co' }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || 'test-key' }}
