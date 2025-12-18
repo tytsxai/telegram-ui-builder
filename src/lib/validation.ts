@@ -7,6 +7,10 @@ export const MAX_BUTTONS_PER_ROW = 8;
 export const MAX_KEYBOARD_ROWS = 100;
 export const CALLBACK_DATA_ERROR_MESSAGE = `callback_data 最多 ${CALLBACK_DATA_MAX_BYTES} 字节`;
 
+/**
+ * Byte length for Telegram constraints.
+ * Telegram's `callback_data` limit is specified in bytes, not characters; use UTF-8.
+ */
 export const getByteLength = (value: string) => new TextEncoder().encode(value).length;
 
 const formatKeyboardIssue = (issue: z.ZodIssue) => {

@@ -17,7 +17,8 @@ Purpose: keep `src/integrations/supabase/types.ts` aligned with the live Supabas
   ```sh
   SUPABASE_PROJECT_REF=<your_ref> npm run check:supabase-types
   ```
-  This runs `npx supabase@latest gen types typescript --project-id $SUPABASE_PROJECT_REF --schema public` and exits non-zero if `src/integrations/supabase/types.ts` was modified.
+  This regenerates `src/integrations/supabase/types.ts` and exits non-zero if the file changes.
+  Implementation note: `npm run supabase:types` writes via a temp file and refuses to run when `SUPABASE_PROJECT_REF` is missing (to avoid accidentally emptying the types file).
 
 - RLS smoke test (requires service role + anon keys):
   ```sh
@@ -32,7 +33,7 @@ Purpose: keep `src/integrations/supabase/types.ts` aligned with the live Supabas
 - `.github/workflows/supabase-types.yml` runs weekly + on manual trigger.
 - Add secrets `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`.
 - Scheduled runs fail on drift; manual dispatch continues, runs lint/build, and commits Supabase artifacts.
-- Main CI (`.github/workflows/ci.yml`) runs `check:supabase-types` + `smoke:rls` when secrets `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are provided.
+- Main CI (`.github/workflows/ci.yml`) focuses on lint/test/build and Playwright; Supabase drift checks are handled by `supabase-types.yml` to avoid coupling CI health to external secrets.
 
 ## Post Steps
 - Run `npm run lint && npm run build && npm run test`
