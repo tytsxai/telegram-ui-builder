@@ -5,8 +5,9 @@ Current view of the Telegram builder modules, key dependencies, and risk guardra
 ## Module map (scanned scope)
 | Module | Responsibilities | Key dependencies / coupling |
 | --- | --- | --- |
-| `src/components/TelegramChatWithDB.tsx` | Monolithic container handling auth, state wiring, persistence calls, offline queue replay, import/export/codegen, share tokens, dialogs, navigation. | Chat hooks (`useChatState`, `useKeyboardActions`, `useSupabaseSync`, `useScreenNavigation`), `pendingQueue`, `referenceChecker`, `validation`, Supabase client, workbench UI. Side-effects concentrated here. |
-| `src/hooks/chat/useBuilderStore.tsx` | Alternative container that packages the same orchestration as props for the workbench layout. Mirrors queue, import/export, share, and navigation logic. | Same dependencies as `TelegramChatWithDB` plus `useCodegen` and `useAuthUser`; risk of drift between the two containers. |
+| `src/components/TelegramChatWithDB.tsx` | Legacy entry wrapper that renders the workbench root. Most orchestration lives in builder hooks/components (see `BuilderRoot`/`useBuilderStore`). | Minimal; delegates to the builder root. |
+| `src/hooks/chat/useBuilderStore.tsx` | Main workbench orchestrator: wires auth, state, persistence calls, offline queue, import/export/codegen, share tokens, dialogs, navigation. | Chat hooks (`useChatState`, `useKeyboardActions`, `useSupabaseSync`, `useScreenNavigation`), `pendingQueue`, `referenceChecker`, `validation`, Supabase client, workbench UI. High coupling surface. |
+| `src/hooks/chat/useOfflineQueueSync.ts` | Encapsulates offline queue enqueue/replay/clear behavior and UI-facing flags (`pendingOpsNotice`, `retryingQueue`). | `pendingQueue`, `SupabaseDataAccess`, toast side-effects; coupled to `useBuilderStore` snapshot semantics. |
 | `src/hooks/chat/useSupabaseSync.ts` | Loads/persists screens, pins, and layout sync status; wraps `SupabaseDataAccess` and publishes sync telemetry. Owns share/layout status state. | Supabase client, `SupabaseDataAccess`, `publishSyncEvent`, toast side-effects. Assumes `user_id` RLS filter. |
 | `src/lib/dataAccess.ts` | Single gateway for Supabase CRUD with retry/backoff and structured logging; shapes payloads via `TablesInsert/Update`. | Supabase client, `supabaseRetry`, generated Supabase types. Encodes table/column names and share token semantics. |
 | `src/lib/pendingQueue.ts` | Offline write queue in `localStorage` (`pending_ops_v2_<userId>`); enqueue/dedupe updates, migrate v1 queue, retry bookkeeping/backoff. | Supabase types, `supabaseRetry` (backoff), `publishSyncEvent` side-effects expected. Coupled to container replay logic. |
@@ -24,14 +25,14 @@ Current view of the Telegram builder modules, key dependencies, and risk guardra
 - **Supabase client usage**: `useSupabaseSync` + `SupabaseDataAccess` assume RLS-scope via `user_id` and shape compatibility with `Screen` (keyboard JSON). Share token publish/rotate lives in `dataAccess`.
 
 ## Coupling / boundary notes
-- Containers (`TelegramChatWithDB` + `useBuilderStore`) blend UI rendering with persistence, offline replay, codegen, navigation, and share flows; decomposition should isolate persistence/queue service, import/export/codegen pipeline, navigation/graph module, and presentation-only workbench.
+- `useBuilderStore` blends UI wiring with persistence, offline replay, codegen, navigation, and share flows; decomposition should isolate persistence/queue service, import/export/codegen pipeline, navigation/graph module, and presentation-only workbench.
 - `useChatState` serialization and Telegram export feed both Supabase storage and codegen; divergence risks broken imports/previews. History contract is assumed by keyboard actions.
 - Offline queue replay couples `pendingQueue` with `SupabaseDataAccess` behavior and `user.id` scoping; in-flight edits rely on container-managed `lastSavedSnapshot`, not queue state.
 - Reference/graph utilities are pure but tightly bound to keyboard shape; keep delete/share guards co-located with flow diagram logic to avoid duplication.
-- Duplicate orchestration between `TelegramChatWithDB` and `useBuilderStore` risks behavioral drift; prefer a single orchestration module consumed by both entry points.
+- Prefer a single orchestration module (currently `useBuilderStore`) consumed by all entry points to avoid behavioral drift.
 
 ## High-risk files & unique-writer suggestions
-- `src/components/TelegramChatWithDB.tsx` & `src/hooks/chat/useBuilderStore.tsx`: High coupling surface (auth, sync, import/export, codegen, navigation, offline). TL/pairing-only until decomposition; converge on one orchestrator.
+- `src/hooks/chat/useBuilderStore.tsx`: High coupling surface (auth, sync, import/export, codegen, navigation, offline). TL/pairing-only until decomposition; keep orchestration single-sourced.
 - `src/hooks/chat/useSupabaseSync.ts`: Sole orchestrator of remote reads/writes and sync status; coupled to Supabase schema/RLS. Keep with backend/Supabase owner.
 - `src/lib/dataAccess.ts`: Single gateway for DB tables + retry policy + share token actions; schema/RLS adjustments must originate here. Treat as owner-controlled (unique writer).
 - `src/lib/pendingQueue.ts`: Offline durability/dedupe logic and storage versioning; data-loss risk on changes. Assign to reliability owner and version keys on shape changes.

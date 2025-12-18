@@ -11,7 +11,8 @@ Purpose: capture share/layout/queue sync state changes with requestIds to help d
 - Event shape: `{ scope: "share" | "layout" | "queue", status: { state, requestId?, message?, at? } }`
 
 ## Defaults
-- If no publisher is set, events are logged to console via `logSyncEvent` in `TelegramChatWithDB`.
+- If no publisher is set, `publishSyncEvent` becomes a no-op (events are dropped).
+- In development, some sync paths may additionally write to `console.info` for local debugging (see `logSyncEvent` in `useSupabaseSync`).
 
 ## How to hook up (examples)
 - Sentry:

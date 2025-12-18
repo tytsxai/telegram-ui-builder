@@ -13,6 +13,7 @@ import { useAuthUser } from "@/hooks/chat/useAuthUser";
 import { validateKeyboard, validateMessageContent } from "@/lib/validation";
 import type { TemplateDefinition } from "@/types/templates";
 import { useOfflineQueueSync } from "@/hooks/chat/useOfflineQueueSync";
+import { readPendingOps } from "@/lib/pendingQueue";
 import type { Json, TablesUpdate } from "@/integrations/supabase/types";
 import type { SaveScreenInput } from "@/lib/dataAccess";
 import type { KeyboardButton, KeyboardRow, Screen } from "@/types/telegram";

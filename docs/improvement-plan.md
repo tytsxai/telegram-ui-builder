@@ -6,8 +6,8 @@ Goal: ship a production-grade Telegram UI builder with reliable Supabase persist
 | Goal | Modules / Boundaries | Notes |
 | --- | --- | --- |
 | P0 - Schema + Types lockstep | `src/integrations/supabase/types.ts`, `lib/dataAccess.ts` (gateway), `useSupabaseSync` | Treat `types.ts` + `dataAccess` as single-writer; queue payloads also rely on these shapes. Regen types before touching gateway or callers. |
-| P0 - Reliable save + offline sync | `TelegramChatWithDB.tsx` / `useBuilderStore.tsx` (orchestrators), `useSupabaseSync`, `lib/pendingQueue.ts`, `lib/dataAccess.ts`, `lib/supabaseRetry.ts` | Offline queue uses `pending_ops_v2_<userId>`; replay path assumes `SupabaseDataAccess` semantics. Keep persistence/queue logic centralized before UI split. |
-| P0 - Builder decomposition | `TelegramChatWithDB.tsx` + `useBuilderStore.tsx` (duplicated container), `useChatState`, `useKeyboardActions`, workbench UI | Converge to one orchestrator; split into persistence/queue service, import/export+codegen module, navigation/graph module, and render-only canvas. |
+| P0 - Reliable save + offline sync | `BuilderRoot` / `useBuilderStore.tsx` (orchestrators), `useSupabaseSync`, `useOfflineQueueSync`, `lib/pendingQueue.ts`, `lib/dataAccess.ts`, `lib/supabaseRetry.ts` | Offline queue uses `pending_ops_v2_<userId>`; replay path assumes `SupabaseDataAccess` semantics. Keep persistence/queue logic centralized before UI split. |
+| P0 - Builder decomposition | `BuilderRoot` + `useBuilderStore.tsx` (orchestration), `useChatState`, `useKeyboardActions`, workbench UI | Converge to one orchestrator surface; split into persistence/queue service, import/export+codegen module, navigation/graph module, and render-only canvas. |
 | P0 - Automated coverage | `lib/referenceChecker`, `lib/validation`, `pendingQueue`, `useChatState` transforms, `useSupabaseSync` + `dataAccess` (mocked Supabase) | Focus on transform/persistence layers and queue replay. Add Supabase mock for layout/share flows and offline retries. |
 | P1 - Entry + share controls | Sidebar/Flow diagram + `useSupabaseSync` share ops + `dataAccess` | Token rotate/revoke lives in gateway; share blocked until entry set and links validated. |
 | P1 - Template library + onboarding | Import/export pipeline (`useChatState`), validation, starter presets | Validations must align with Telegram constraints; avoid bypassing `validateKeyboard/message`. |
@@ -25,7 +25,7 @@ Goal: ship a production-grade Telegram UI builder with reliable Supabase persist
   - Status: DataAccess + queue with retries/backoff landed; pending queue badge + manual retry added; telemetry with requestId ready. Still need per-item error surfacing and stronger 429 handling.
   - Acceptance: Simulated offline → edits queued → on reconnect they replay and clear; duplicate writes deduped by request id; toast only on failure; logs include request_id/user_id/table/action.
 - [ ] **Builder decomposition**
-  - Actions: Split `src/components/TelegramChatWithDB.tsx` into hooks/components for persistence, navigation/preview, import/export, flow diagram; memoize heavy renders; share state via providers or centralized stores to avoid prop drilling.
+  - Actions: Split the builder orchestration into hooks/components for persistence, navigation/preview, import/export, flow diagram; memoize heavy renders; share state via providers or centralized stores to avoid prop drilling.
   - Acceptance: Main component <500 LOC; renders on typing stay under 60ms (React profiler); no duplicate state sources for screens/entry/pins.
 - [~] **Automated coverage**
   - Actions: Unit tests for `referenceChecker`, `validation`, `useUndoRedo`, import/export transforms, sync queue; Playwright path login → create screen → link button → export/import → share page; wire lint/tests/build into CI.
@@ -62,7 +62,7 @@ Goal: ship a production-grade Telegram UI builder with reliable Supabase persist
 - [ ] Regen Supabase types → lint/build/test → commit types
 - [x] Land data access layer + sync queue with retries/backoff + structured logs
 - [x] Wire queue into save/update/delete/pin/layout flows + offline replay + UI badges + manual retry
-- [ ] Split builder container into focused hooks/components; memoize heavy blocks (collapse `TelegramChatWithDB` + `useBuilderStore` onto one orchestrator first)
+- [ ] Split builder container into focused hooks/components; memoize heavy blocks (keep orchestration single-sourced via `useBuilderStore`)
 - [~] Ship unit tests (referenceChecker, validation, undo/redo, import/export, sync queue) — core modules covered; add dataAccess/layout/share flows
 - [~] Add Playwright e2e happy path + offline replay check — scaffold in place; needs Supabase mock/env + full flow scripts
 - [x] CI: lint + typecheck + test + build, plus Playwright run (listing + execution)

@@ -2,6 +2,17 @@ import type { TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
 import { computeBackoffDelay } from "./supabaseRetry";
 import { publishSyncEvent } from "./syncTelemetry";
 
+/**
+ * Offline write queue persisted in `localStorage`.
+ *
+ * Contract (maintenance safety):
+ * - Storage key: `pending_ops_v2_<userId|anon>` (see `buildKey`)
+ * - Items are JSON-serialized; code changes here can affect data durability.
+ * - `update` operations are de-duped by screen id to ensure replay applies the latest state.
+ * - Version bumps must include a migration path and tests (see `reviveLegacy` and `src/lib/__tests__/pendingQueue.test.ts`).
+ *
+ * This module is intentionally UI-agnostic: enqueue/replay orchestration is handled by higher-level hooks.
+ */
 export type SavePayload = TablesInsert<"screens">;
 export type UpdatePayload = { id: string; update: TablesUpdate<"screens"> };
 
