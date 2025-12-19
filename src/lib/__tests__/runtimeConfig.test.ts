@@ -44,4 +44,28 @@ describe("runtimeConfig", () => {
     expect(report.hasBlockingIssues).toBe(true);
     expect(report.issues.some((issue) => issue.message.includes("placeholders"))).toBe(true);
   });
+
+  it("flags service role keys even outside prod", () => {
+    const serviceRoleKey = "eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.signature";
+    const report = getRuntimeConfigReport(
+      buildEnv({
+        VITE_SUPABASE_URL: "https://example.supabase.co",
+        VITE_SUPABASE_PUBLISHABLE_KEY: serviceRoleKey,
+        PROD: false,
+      }),
+    );
+    expect(report.issues.some((issue) => issue.message.includes("service role"))).toBe(true);
+  });
+
+  it("flags insecure Supabase URL in prod", () => {
+    const report = getRuntimeConfigReport(
+      buildEnv({
+        VITE_SUPABASE_URL: "http://example.supabase.co",
+        VITE_SUPABASE_PUBLISHABLE_KEY: "public-anon-key-2",
+        PROD: true,
+      }),
+    );
+    expect(report.hasBlockingIssues).toBe(true);
+    expect(report.issues.some((issue) => issue.message.includes("https"))).toBe(true);
+  });
 });
