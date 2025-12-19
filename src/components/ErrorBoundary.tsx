@@ -1,6 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { Button } from './ui/button';
 import { AlertCircle, RefreshCw, Home } from 'lucide-react';
+import { reportError } from '@/lib/errorReporting';
 
 interface Props {
   children: ReactNode;
@@ -38,6 +39,11 @@ class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     // 记录错误信息
     console.error('ErrorBoundary caught an error:', error, errorInfo);
+
+    reportError(error, {
+      source: 'react_error_boundary',
+      details: { componentStack: errorInfo.componentStack },
+    });
     
     this.setState({
       error,
@@ -92,7 +98,7 @@ class ErrorBoundary extends Component<Props, State> {
               </p>
             </div>
 
-            {process.env.NODE_ENV === 'development' && this.state.errorInfo && (
+            {import.meta.env.DEV && this.state.errorInfo && (
               <details className="mb-4">
                 <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
                   查看详细堆栈信息 (开发模式)

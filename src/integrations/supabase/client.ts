@@ -11,17 +11,9 @@
  */
 import { createClient, type SupabaseClient, type SupabaseClientOptions } from "@supabase/supabase-js";
 import type { Database } from "./types";
+import { getSupabaseConfig } from "@/lib/runtimeConfig";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "http://localhost:54321";
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? "test-key";
-
-const SHOULD_CONSOLE_LOG = import.meta.env.MODE !== "test";
-
-if (SHOULD_CONSOLE_LOG && (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)) {
-  // CI/unit tests/build might not provide env vars; use safe fallbacks to keep the app buildable.
-  // In production deployments, make sure to set real values.
-  console.warn("Supabase env missing; falling back to local defaults (VITE_SUPABASE_URL/VITE_SUPABASE_PUBLISHABLE_KEY).");
-}
+const { url: SUPABASE_URL, publishableKey: SUPABASE_PUBLISHABLE_KEY } = getSupabaseConfig();
 
 // 在非浏览器或受限环境下避免访问 localStorage 触发崩溃
 const authStorage =

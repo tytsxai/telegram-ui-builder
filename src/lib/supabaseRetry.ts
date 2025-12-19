@@ -1,4 +1,5 @@
 import type { PostgrestError } from "@supabase/supabase-js";
+import { reportError } from "./errorReporting";
 
 export type RetryReason = "429" | "5xx" | "network";
 
@@ -40,6 +41,9 @@ const isNetworkError = (error: unknown) => {
 
 export const classifyRetryableError = (error: unknown): RetryReason | null => {
   const code = (error as Partial<PostgrestError> | undefined)?.code;
+  const status = (error as { status?: number } | undefined)?.status;
+  if (status === 429) return "429";
+  if (typeof status === "number" && status >= 500) return "5xx";
   if (code === "429") return "429";
   if (typeof code === "string" && code.startsWith("5")) return "5xx";
   if (isNetworkError(error)) return "network";
@@ -96,5 +100,18 @@ export const logSupabaseError = (info: SupabaseErrorLog) => {
     message: err.message,
     details: err.details,
     hint: err.hint,
+  });
+  reportError(info.error, {
+    source: "supabase",
+    action: info.action,
+    table: info.table,
+    userId: info.userId,
+    requestId,
+    details: {
+      code: err.code,
+      message: err.message,
+      details: err.details,
+      hint: err.hint,
+    },
   });
 };
