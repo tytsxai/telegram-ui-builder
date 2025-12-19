@@ -33,6 +33,36 @@
 - UI telemetry: expose sync badge state changes and backlog length to analytics.
 - Consider heartbeat: ping Supabase (lightweight select) every few minutes and surface degraded status in toolbar.
 
+## Deployment Routing (SPA)
+- Configure a rewrite so all non-asset routes serve `index.html` (e.g., `/share/:token`, `/auth`).
+- Bundled configs: `public/_redirects` (Netlify/Cloudflare Pages), `netlify.toml` (build + redirects), `vercel.json` (rewrites).
+- Examples:
+  - Netlify: `_redirects` with `/* /index.html 200`.
+  - Vercel: `rewrites` to `/index.html`.
+  - Nginx: `try_files $uri /index.html;`.
+
+## Runtime Config Guard
+- Production builds will show a configuration error screen if Supabase env values are missing or placeholders.
+- Ensure `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are set at build time.
+
+## Key Rotation (Supabase)
+- Rotate anon keys on suspected leakage and update `VITE_SUPABASE_PUBLISHABLE_KEY` in your host.
+- If rotating service role keys, update only server-side secrets (never `VITE_*`).
+- After rotation: verify auth, share flow, and RLS smoke tests.
+
+## Backup & Restore (Supabase)
+- Enable scheduled backups in the Supabase project (or use PITR on paid tiers).
+- Before risky schema changes, export `screens`, `user_pins`, `screen_layouts`.
+- Restore drill:
+  1) Restore backup into a new project or via PITR.
+  2) Reapply migrations if needed (`supabase db push`).
+  3) Update `VITE_SUPABASE_URL`/`VITE_SUPABASE_PUBLISHABLE_KEY` and smoke test RLS.
+
+## Release & Rollback
+- Keep the last known good `dist/` artifact or deployment ID.
+- Record release commit + migration versions in a changelog.
+- Rollback: redeploy the previous build, revert DB changes if required, and verify share/auth routes.
+
 ## Recovery Steps
 1) Confirm Supabase availability (status page / CLI ping).
 2) Check client error logs with `requestId`; correlate with Supabase edge logs.

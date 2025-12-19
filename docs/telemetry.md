@@ -39,3 +39,25 @@ Purpose: capture share/layout/queue sync state changes with requestIds to help d
 ## Dashboard ideas
 - Track share success/error counts, layout save errors, and queue backlog length.
 - Correlate by `requestId` to Supabase edge logs. Add user_id/session if available (respect PII rules).
+
+## Error Reporting Hook
+- File: `src/lib/errorReporting.ts`
+- Methods:
+  - `setErrorReporter(fn)` to inject your error tracker
+  - `reportError(error, context)` called by ErrorBoundary + Supabase logs + global window handlers
+- Context keys: `source`, `action`, `table`, `userId`, `requestId`, `details`
+- Example:
+  ```ts
+  import * as Sentry from "@sentry/react";
+  import { setErrorReporter } from "@/lib/errorReporting";
+
+  setErrorReporter((error, context) => {
+    Sentry.captureException(error, { extra: context });
+  });
+  ```
+
+## Lightweight Error Reporter (optional)
+- Runtime env:
+  - `VITE_ERROR_REPORTING_URL`: POST endpoint (only used in production)
+  - `VITE_ERROR_REPORTING_API_KEY`: optional `x-api-key` header
+- Hooked in `src/lib/errorReportingClient.ts` and initialized in `src/main.tsx`.

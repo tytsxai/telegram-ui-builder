@@ -38,6 +38,10 @@ Prereqs: Node.js ≥18, npm.
 | `VITE_SUPABASE_STORAGE_URL` | 可选，若使用自定义 Storage 域名 |
 | `SUPABASE_SERVICE_ROLE_KEY` | 可选，脚本/烟雾测试使用（服务端安全存储） |
 | `SUPABASE_ACCESS_TOKEN` | 可选，`supabase gen types` CLI 登录用 |
+| `VITE_ERROR_REPORTING_URL` | 可选，错误上报接收端（生产环境启用） |
+| `VITE_ERROR_REPORTING_API_KEY` | 可选，错误上报鉴权头 |
+
+> 注意：`.env` 仅供本地使用，不要提交到仓库；请保留 `.env.example` 作为模板。
 
 2) 初始化数据库（任选其一）
 - 已有项目：执行 `scripts/supabase/schema.sql` 或 `supabase db push` 应用 `supabase/migrations/*`。
@@ -100,7 +104,8 @@ SUPABASE_PROJECT_REF=<ref> npm run check:supabase-types
 - **GitHub Codespaces**: Launch a codespace from the repository page to develop in a fully configured cloud environment.
 
 ## Deployment
-Run `npm run build`, then deploy the generated `dist/` folder to any static host (e.g., Vercel, Netlify, Cloudflare Pages) or serve it with your preferred Node/edge runtime. Ensure the environment variables for Supabase are configured in your hosting platform.
+Run `npm run build`, then deploy the generated `dist/` folder to any static host (e.g., Vercel, Netlify, Cloudflare Pages) or serve it with your preferred Node/edge runtime. Ensure the environment variables for Supabase are configured in your hosting platform. This is an SPA; configure a rewrite so `/auth` and `/share/:token` route back to `index.html` (see `docs/ops-runbook.md`).
+Bundled rewrites: `public/_redirects` (Netlify/Cloudflare Pages), `netlify.toml`, and `vercel.json`.
 
 ## 质量门禁与运维
 - CI gates: lint → unit tests → build → Playwright e2e (see `.github/workflows/ci.yml`; provide Supabase test env or mock for e2e).
