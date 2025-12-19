@@ -164,7 +164,7 @@ export class SupabaseDataAccess {
         // @ts-expect-error supabase-js v2 supports abortSignal
         ? baseQuery.abortSignal(options.signal)
         : baseQuery;
-      const { data, error } = await query.single();
+      const { data, error } = await query.maybeSingle();
       if (error) throw error;
       return (data as ScreenRow) ?? null;
     });

@@ -278,8 +278,8 @@ describe("SupabaseDataAccess", () => {
   });
 
   it("retrieves a public screen by share token", async () => {
-    const single = vi.fn().mockResolvedValue({ data: { id: "pub-1", share_token: "tok", is_public: true }, error: null });
-    const eqSecond = vi.fn().mockReturnValue({ single });
+    const maybeSingle = vi.fn().mockResolvedValue({ data: { id: "pub-1", share_token: "tok", is_public: true }, error: null });
+    const eqSecond = vi.fn().mockReturnValue({ maybeSingle });
     const eqFirst = vi.fn().mockReturnValue({ eq: eqSecond });
     const select = vi.fn().mockReturnValue({ eq: eqFirst });
     const from = vi.fn().mockReturnValue({ select });
@@ -291,6 +291,19 @@ describe("SupabaseDataAccess", () => {
     expect(eqFirst).toHaveBeenCalledWith("share_token", "tok");
     expect(eqSecond).toHaveBeenCalledWith("is_public", true);
     expect(row?.id).toBe("pub-1");
+  });
+
+  it("returns null when share token is missing", async () => {
+    const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+    const eqSecond = vi.fn().mockReturnValue({ maybeSingle });
+    const eqFirst = vi.fn().mockReturnValue({ eq: eqSecond });
+    const select = vi.fn().mockReturnValue({ eq: eqFirst });
+    const from = vi.fn().mockReturnValue({ select });
+
+    const da = new SupabaseDataAccess({ from } as unknown as { from: typeof from });
+    const row = await da.getPublicScreenByToken("missing");
+
+    expect(row).toBeNull();
   });
 
   it("clones a screen when copying for another user", async () => {
