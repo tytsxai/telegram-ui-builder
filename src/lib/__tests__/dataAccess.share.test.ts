@@ -8,21 +8,24 @@ type ChainSpies = {
   secondEq: ReturnType<typeof vi.fn>;
   select: ReturnType<typeof vi.fn>;
   single: ReturnType<typeof vi.fn>;
+  rpc: ReturnType<typeof vi.fn>;
 };
 
 type SingleResult = { data: unknown; error: unknown };
+type RpcResult = { data: unknown; error: unknown };
 
-const buildClient = (singleResult: SingleResult) => {
+const buildClient = (singleResult: SingleResult, rpcResult?: RpcResult) => {
   const single = vi.fn().mockResolvedValue(singleResult);
   const select = vi.fn(() => ({ single }));
   const secondEq = vi.fn(() => ({ select }));
   const firstEq = vi.fn(() => ({ eq: secondEq }));
   const update = vi.fn(() => ({ eq: firstEq }));
   const from = vi.fn(() => ({ update }));
+  const rpc = vi.fn().mockResolvedValue(rpcResult ?? { data: null, error: null });
 
   return {
-    client: { from } as unknown as ConstructorParameters<typeof SupabaseDataAccess>[0],
-    spies: { from, update, firstEq, secondEq, select, single } satisfies ChainSpies,
+    client: { from, rpc } as unknown as ConstructorParameters<typeof SupabaseDataAccess>[0],
+    spies: { from, update, firstEq, secondEq, select, single, rpc } satisfies ChainSpies,
   };
 };
 
@@ -80,6 +83,31 @@ describe("SupabaseDataAccess share helpers", () => {
     expect(spies.select).toHaveBeenCalled();
     expect(result?.is_public).toBe(false);
     expect(result?.share_token).toBeNull();
+  });
+
+  it("fetches public screens via RPC share token", async () => {
+    const { client, spies } = buildClient(
+      { data: null, error: null },
+      { data: { id: "s1", share_token: "token-1" }, error: null },
+    );
+    const dataAccess = new SupabaseDataAccess(client);
+
+    const result = await dataAccess.getPublicScreenByToken("token-1");
+
+    expect(spies.rpc).toHaveBeenCalledWith("get_public_screen_by_token", { token: "token-1" });
+    expect(result?.id).toBe("s1");
+  });
+
+  it("normalizes array results from public share RPC", async () => {
+    const { client } = buildClient(
+      { data: null, error: null },
+      { data: [{ id: "s2", share_token: "token-2" }], error: null },
+    );
+    const dataAccess = new SupabaseDataAccess(client);
+
+    const result = await dataAccess.getPublicScreenByToken("token-2");
+
+    expect(result?.id).toBe("s2");
   });
 
   it("throws when rotating or revoking without a user id", async () => {

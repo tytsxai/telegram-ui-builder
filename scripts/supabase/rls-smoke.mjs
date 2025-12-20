@@ -144,13 +144,21 @@ async function main() {
       if (error) throw error;
 
       const { data, error: readError } = await viewerClient
-        .from("screens")
-        .select("id,share_token,is_public")
-        .eq("share_token", shareToken)
-        .eq("is_public", true)
-        .maybeSingle();
+        .rpc("get_public_screen_by_token", { token: shareToken });
       if (readError) throw readError;
-      if (!data?.id) throw new Error("Share token not readable by others");
+      const normalized = Array.isArray(data) ? data[0] : data;
+      if (!normalized?.id) throw new Error("Share token not readable by others");
+    });
+
+    await check("public screens not readable via direct select", async () => {
+      if (!screenId) throw new Error("missing screen id");
+      const { data, error } = await viewerClient
+        .from("screens")
+        .select("id")
+        .eq("share_token", shareToken)
+        .eq("is_public", true);
+      if (error && !["PGRST116", "42501"].includes(error.code ?? "")) throw error;
+      if ((data ?? []).length > 0) throw new Error("Public screens should not be readable via table select");
     });
 
     await check("public screens still blocked for update by others", async () => {
