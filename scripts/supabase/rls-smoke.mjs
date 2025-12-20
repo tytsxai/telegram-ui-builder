@@ -161,6 +161,15 @@ async function main() {
       if ((data ?? []).length > 0) throw new Error("Public screens should not be readable via table select");
     });
 
+    await check("public screens reject sensitive content", async () => {
+      if (!screenId) throw new Error("missing screen id");
+      const { error } = await ownerClient
+        .from("screens")
+        .update({ message_content: "Wallet: TXyne3zFjt2n9zye9oSXiZcmGExYaM1jxv" })
+        .eq("id", screenId);
+      if (!error) throw new Error("Sensitive content should block public screens");
+    });
+
     await check("public screens still blocked for update by others", async () => {
       if (!screenId) throw new Error("missing screen id");
       const { error } = await viewerClient.from("screens").update({ name: "bad" }).eq("id", screenId);

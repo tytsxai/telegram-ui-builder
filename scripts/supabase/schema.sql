@@ -52,17 +52,62 @@ before update on public.screens
 for each row
 execute function public.update_updated_at_column();
 
+create or replace function public.screen_contains_sensitive_data(message_content text, keyboard jsonb)
+returns boolean
+language sql
+immutable
+as $$
+  select
+    coalesce(message_content, '') ~* pattern
+    or coalesce(keyboard::text, '') ~* pattern
+  from (
+    select E'(?:\\b0x[a-fA-F0-9]{40}\\b|\\bT[1-9A-HJ-NP-Za-km-z]{33}\\b|\\b(?:bc1|[13])[a-zA-HJ-NP-Z0-9]{25,39}\\b)' as pattern
+  ) as patterns;
+$$;
+
+update public.screens
+set is_public = false,
+    share_token = null
+where is_public = true
+  and public.screen_contains_sensitive_data(message_content, keyboard);
+
+alter table public.screens
+  drop constraint if exists screens_public_no_sensitive;
+
+alter table public.screens
+  add constraint screens_public_no_sensitive
+  check (is_public = false or not public.screen_contains_sensitive_data(message_content, keyboard));
+
 -- Public share access RPC (token-based, no broad SELECT)
-create or replace function public.get_public_screen_by_token(token text)
-returns public.screens
+drop function if exists public.get_public_screen_by_token(text);
+
+create function public.get_public_screen_by_token(token text)
+returns table (
+  id uuid,
+  name text,
+  message_content text,
+  keyboard jsonb,
+  is_public boolean,
+  share_token text,
+  created_at timestamptz,
+  updated_at timestamptz
+)
 language sql
 security definer
 set search_path = public
 as $$
-  select *
-  from public.screens
-  where is_public = true
-    and share_token = token
+  select
+    s.id,
+    s.name,
+    s.message_content,
+    s.keyboard,
+    s.is_public,
+    s.share_token,
+    s.created_at,
+    s.updated_at
+  from public.screens s
+  where s.is_public = true
+    and s.share_token = token
   limit 1;
 $$;
 

@@ -118,6 +118,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      screen_contains_sensitive_data: {
+        Args: {
+          message_content: string
+          keyboard: Json
+        }
+        Returns: boolean
+      }
       get_public_screen_by_token: {
         Args: {
           token: string
@@ -131,7 +138,6 @@ export type Database = {
           name: string
           share_token: string | null
           updated_at: string | null
-          user_id: string | null
         }
       }
     }
