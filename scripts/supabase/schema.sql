@@ -19,8 +19,8 @@ alter table public.screens enable row level security;
 create policy if not exists "Users can view own screens" on public.screens
   for select using (auth.uid() = user_id);
 
-create policy if not exists "Anyone can view public screens" on public.screens
-  for select using (is_public = true);
+-- Public share reads are handled via RPC; drop any legacy public policy.
+drop policy if exists "Anyone can view public screens" on public.screens;
 
 create policy if not exists "Users can insert own screens" on public.screens
   for insert with check (auth.uid() = user_id);
@@ -51,6 +51,23 @@ create trigger update_screens_updated_at
 before update on public.screens
 for each row
 execute function public.update_updated_at_column();
+
+-- Public share access RPC (token-based, no broad SELECT)
+create or replace function public.get_public_screen_by_token(token text)
+returns public.screens
+language sql
+security definer
+set search_path = public
+as $$
+  select *
+  from public.screens
+  where is_public = true
+    and share_token = token
+  limit 1;
+$$;
+
+revoke all on function public.get_public_screen_by_token(text) from public;
+grant execute on function public.get_public_screen_by_token(text) to anon, authenticated;
 
 -- 2) Pins table: per-user list of pinned screen ids
 create table if not exists public.user_pins (

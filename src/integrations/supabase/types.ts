@@ -118,7 +118,22 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_public_screen_by_token: {
+        Args: {
+          token: string
+        }
+        Returns: {
+          created_at: string | null
+          id: string
+          is_public: boolean | null
+          keyboard: Json
+          message_content: string
+          name: string
+          share_token: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+      }
     }
     Enums: {
       [_ in never]: never

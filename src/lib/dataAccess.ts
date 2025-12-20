@@ -155,18 +155,15 @@ export class SupabaseDataAccess {
 
   async getPublicScreenByToken(token: string, options?: { signal?: AbortSignal }): Promise<ScreenRow | null> {
     return this.run("select", "screens", async () => {
-      const baseQuery = this.client
-        .from("screens")
-        .select("id,name,message_content,keyboard,share_token,is_public,updated_at,created_at,user_id")
-        .eq("share_token", token)
-        .eq("is_public", true);
+      const baseQuery = this.client.rpc("get_public_screen_by_token", { token });
       const query = options?.signal && "abortSignal" in baseQuery
         // @ts-expect-error supabase-js v2 supports abortSignal
         ? baseQuery.abortSignal(options.signal)
         : baseQuery;
-      const { data, error } = await query.maybeSingle();
+      const { data, error } = await query;
       if (error) throw error;
-      return (data as ScreenRow) ?? null;
+      const normalized = Array.isArray(data) ? data[0] : data;
+      return (normalized as ScreenRow) ?? null;
     });
   }
 
