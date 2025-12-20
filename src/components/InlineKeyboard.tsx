@@ -354,19 +354,19 @@ const InlineKeyboard = React.memo(({
           <>
             {button.linked_screen_id && (
               <div
-                className="absolute -top-1 -left-1 w-3 h-3 bg-green-500 rounded-full opacity-90 pointer-events-none transition-opacity group-hover:opacity-90"
+                className="absolute -top-1 -left-1 w-3 h-3 bg-green-500 rounded-full opacity-0 pointer-events-none transition-opacity group-hover:opacity-90"
                 title="已配置跳转模版"
               />
             )}
             {button.url && (
               <div
-                className="absolute -top-1 -left-1 w-3 h-3 bg-blue-500 rounded-full opacity-90 pointer-events-none transition-opacity group-hover:opacity-90"
+                className="absolute -top-1 -left-1 w-3 h-3 bg-blue-500 rounded-full opacity-0 pointer-events-none transition-opacity group-hover:opacity-90"
                 title="已配置URL链接"
               />
             )}
             {!button.url && !button.linked_screen_id && (
               <div
-                className="absolute -top-1 -left-1 w-3 h-3 bg-yellow-500 rounded-full opacity-90 pointer-events-none transition-opacity group-hover:opacity-90"
+                className="absolute -top-1 -left-1 w-3 h-3 bg-yellow-500 rounded-full opacity-0 pointer-events-none transition-opacity group-hover:opacity-90"
                 title="未配置跳转目标"
               />
             )}

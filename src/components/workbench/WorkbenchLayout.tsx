@@ -4,6 +4,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { type ImperativePanelHandle } from "react-resizable-panels";
 import { Badge } from "@/components/ui/badge";
 import { WifiOff, Wifi, Clock3, Loader2 } from "lucide-react";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
@@ -30,8 +31,8 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   isOnline = true,
 }) => {
   const [isBottomCollapsed, setIsBottomCollapsed] = useState(false);
-  const network = useNetworkStatus();
-  const online = isOnline ?? network.isOnline;
+  const isOfflineStatus = useNetworkStatus();
+  const online = isOnline ?? !isOfflineStatus;
 
   // 默认在小屏下折叠底部面板，避免遮挡
   useEffect(() => {
@@ -40,6 +41,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
     setIsBottomCollapsed(shouldCollapse);
   }, []);
   const [bottomPanelSize, setBottomPanelSize] = useState(25);
+  const bottomPanelRef = React.useRef<ImperativePanelHandle>(null);
 
   React.useEffect(() => {
     const handleResize = () => {
@@ -111,6 +113,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
 
             {/* Bottom Panel */}
             <ResizablePanel
+              ref={bottomPanelRef}
               defaultSize={bottomPanelSize}
               minSize={5}
               collapsible={true}
@@ -120,10 +123,19 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
               className={`bg-card/40 backdrop-blur-xl border-t border-white/5 flex flex-col transition-all duration-300 ${isBottomCollapsed ? 'min-h-[36px]' : ''}`}
             >
               <div className="flex flex-col h-full">
-                {/* Header for manual toggle if needed, or just rely on drag */}
+                {/* Header for manual toggle */}
                 <div
                   className="h-9 flex-shrink-0 flex items-center justify-between px-4 border-b border-border/50 bg-muted/20 select-none cursor-pointer hover:bg-muted/40 transition-colors"
-                  onClick={() => setIsBottomCollapsed(!isBottomCollapsed)}
+                  onClick={() => {
+                    const panel = bottomPanelRef.current;
+                    if (panel) {
+                      if (isBottomCollapsed) {
+                        panel.expand();
+                      } else {
+                        panel.collapse();
+                      }
+                    }
+                  }}
                 >
                   <span className="text-xs font-medium text-muted-foreground flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${isBottomCollapsed ? 'bg-slate-400' : 'bg-green-500'}`} />

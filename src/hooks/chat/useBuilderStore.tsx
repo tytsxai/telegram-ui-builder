@@ -289,6 +289,7 @@ export const useBuilderStore = () => {
     (template: TemplateDefinition) => {
       const result = loadTemplate(template);
       if (!result.ok) {
+        // @ts-expect-error discriminated union narrowing issue
         toast.error(result.error);
         return;
       }
@@ -325,7 +326,7 @@ export const useBuilderStore = () => {
       user_id: user.id,
       name: newScreenName,
       message_content: serializeMessagePayload(),
-      keyboard: keyboard as Json,
+      keyboard: keyboard as unknown as Json,
       is_public: false,
       share_token: null,
     };
@@ -339,7 +340,7 @@ export const useBuilderStore = () => {
       const savedScreen = await saveScreen(payload);
       if (savedScreen) {
         applyScreenState({
-          ...(savedScreen as Screen),
+          ...(savedScreen as unknown as Screen),
           keyboard: keyboard as KeyboardRow[],
           message_content: serializeMessagePayload(),
           parse_mode: parseMode,
@@ -388,7 +389,7 @@ export const useBuilderStore = () => {
 
     const updatePayload: TablesUpdate<"screens"> = {
       message_content: serializeMessagePayload(),
-      keyboard: keyboard as Json,
+      keyboard: keyboard as unknown as Json,
       updated_at: new Date().toISOString(),
     };
 
@@ -1290,7 +1291,10 @@ export const useBuilderStore = () => {
     circularDialog: {
       open: circularDialogOpen,
       setOpen: setCircularDialogOpen,
-      circularPaths: detectedCircularPaths,
+      circularPaths: detectedCircularPaths.map(path => ({
+        path,
+        screenNames: path.map(id => screens.find(s => s.id === id)?.name || "Unknown")
+      })),
       screens,
       currentScreenId,
       onNavigateToScreen: (screenId: string) => {

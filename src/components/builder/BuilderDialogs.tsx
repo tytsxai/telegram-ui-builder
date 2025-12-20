@@ -1,4 +1,5 @@
 import React, { Suspense, lazy } from "react";
+import { Loader2 } from "lucide-react";
 import ButtonEditDialog from "@/components/ButtonEditDialog";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -118,7 +119,11 @@ export const BuilderDialogs = () => {
         </DialogContent>
       </Dialog>
 
-      <Suspense fallback={null}>
+      <Suspense fallback={
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      }>
         <TemplateFlowDiagram
           screens={flowDiagram.screens}
           currentScreenId={flowDiagram.currentScreenId}
