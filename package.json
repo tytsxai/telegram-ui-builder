@@ -37,6 +37,8 @@
     "supabase:types": "node scripts/supabase/gen-types.mjs",
     "check:supabase-types": "npm run supabase:types && git diff --exit-code -- src/integrations/supabase/types.ts",
     "smoke:rls": "node scripts/supabase/rls-smoke.mjs",
+    "verify:migrations": "node scripts/supabase/verify-migrations.mjs",
+    "pre-deploy": "node scripts/ops/pre-deploy-check.mjs",
     "test": "vitest run",
     "test:watch": "vitest watch",
     "test:e2e": "playwright test"
