@@ -1,11 +1,53 @@
 import { z } from 'zod';
 import type { KeyboardRow } from '@/types/telegram';
 
+const FORBIDDEN_URL_PROTOCOLS = new Set(["javascript:", "data:", "vbscript:"]);
+
+/**
+ * 检查 URL 协议是否允许（禁止 javascript:, data:, vbscript:）
+ * Fail-closed: unparseable URLs are rejected unless they're relative paths
+ */
+export const isUrlProtocolAllowed = (rawUrl: string): boolean => {
+  const value = rawUrl.trim();
+  if (!value) return true; // Empty is allowed (optional field)
+
+  // Check for obvious dangerous protocols without parsing
+  const lower = value.toLowerCase();
+  if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('vbscript:')) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(value);
+    return !FORBIDDEN_URL_PROTOCOLS.has(parsed.protocol.toLowerCase());
+  } catch {
+    // If URL can't be parsed, check if it looks like a relative URL
+    // Relative URLs are safe (no protocol)
+    if (value.startsWith('/') || value.startsWith('./') || value.startsWith('../')) {
+      return true;
+    }
+    // For other unparseable values, reject (fail-closed)
+    return false;
+  }
+};
+
+/**
+ * 验证 URL 协议安全性
+ */
+export const validateUrlProtocol = (rawUrl: string): string => {
+  const value = rawUrl.trim();
+  if (!isUrlProtocolAllowed(value)) {
+    throw new Error("禁止的URL协议");
+  }
+  return value;
+};
+
 export const BUTTON_TEXT_MAX = 30;
 export const CALLBACK_DATA_MAX_BYTES = 64;
 export const MAX_BUTTONS_PER_ROW = 8;
 export const MAX_KEYBOARD_ROWS = 100;
 export const CALLBACK_DATA_ERROR_MESSAGE = `callback_data 最多 ${CALLBACK_DATA_MAX_BYTES} 字节`;
+const SENSITIVE_DATA_PATTERN = /\b0x[a-fA-F0-9]{40}\b|\bT[1-9A-HJ-NP-Za-km-z]{33}\b|\b(?:bc1|[13])[a-zA-HJ-NP-Z0-9]{25,39}\b/i;
 
 /**
  * Byte length for Telegram constraints.
@@ -38,7 +80,7 @@ const formatKeyboardIssue = (issue: z.ZodIssue) => {
 export const ButtonSchema = z.object({
   id: z.string(),
   text: z.string().min(1, "按钮文本不能为空").max(BUTTON_TEXT_MAX, "按钮文本最多30个字符"),
-  url: z.string().url("无效的URL格式").optional().or(z.literal('')),
+  url: z.string().url("无效的URL格式").refine(isUrlProtocolAllowed, { message: "禁止的URL协议" }).optional().or(z.literal('')),
   callback_data: z.string().optional().refine(
     (val) => {
       if (!val) return true;
@@ -149,6 +191,17 @@ export const validateScreen = (screen: unknown) => {
       throw new Error(`模版数据验证失败: ${messages}`);
     }
     throw error;
+  }
+};
+
+export const screenContainsSensitiveData = (messageContent: string, keyboard: KeyboardRow[] | unknown) => {
+  const content = messageContent ?? "";
+  if (SENSITIVE_DATA_PATTERN.test(content)) return true;
+  if (!keyboard) return false;
+  try {
+    return SENSITIVE_DATA_PATTERN.test(JSON.stringify(keyboard));
+  } catch {
+    return false;
   }
 };
 

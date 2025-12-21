@@ -28,13 +28,17 @@ const MessageBubble = forwardRef<MessageBubbleHandle, MessageBubbleProps>(({ con
     [],
   );
 
+  const escapeUrlForAttr = (url: string) =>
+    url.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
   const formatMessage = useCallback((text: string): string => {
     // 1) Escape raw HTML first
     let safe = escapeHtml(text);
     // 2) Convert markdown-like syntax to HTML (order matters)
     safe = safe
-      // Links [text](url)
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="underline">$1</a>')
+      // Links [text](url) - escape URL for attribute context to prevent XSS
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)"]+)\)/g, (_, linkText, url) =>
+        `<a href="${escapeUrlForAttr(url)}" target="_blank" rel="noopener noreferrer" class="underline">${linkText}</a>`)
       // Bold (all instances)
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       // Italic (all instances)

@@ -22,7 +22,7 @@ jobs:
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
       VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
       VITE_ERROR_REPORTING_URL: ${{ secrets.VITE_ERROR_REPORTING_URL }}
-      VITE_ERROR_REPORTING_API_KEY: ${{ secrets.VITE_ERROR_REPORTING_API_KEY }}
+      # Note: API key removed - error reporting endpoint should be public or use server-side proxy
       VITE_APP_VERSION: ${{ github.sha }}
       VITE_COMMIT_SHA: ${{ github.sha }}
     steps:

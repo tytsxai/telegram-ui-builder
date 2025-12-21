@@ -12,6 +12,35 @@ type SerializedError = {
 
 const truncate = (value: string, max: number) => (value.length > max ? `${value.slice(0, max)}...` : value);
 
+const sanitizeUrl = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    // Remove query params and hash that may contain tokens/PII
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return "[invalid-url]";
+  }
+};
+
+const redactContext = (context: unknown): unknown => {
+  if (!context) return context;
+  if (typeof context === "string") {
+    return truncate(context, MAX_MESSAGE_LENGTH);
+  }
+  if (typeof context !== "object") return context;
+
+  const safe = { ...(context as Record<string, unknown>) };
+  const sensitiveKeys = ["token", "password", "secret", "key", "auth", "credential", "details"];
+  for (const key of Object.keys(safe)) {
+    if (sensitiveKeys.some((s) => key.toLowerCase().includes(s))) {
+      safe[key] = "[REDACTED]";
+    }
+  }
+  return safe;
+};
+
 const serializeError = (error: unknown): SerializedError => {
   if (error instanceof Error) {
     return {
@@ -120,8 +149,8 @@ export const initErrorReporting = () => {
       ...serialized,
       message: truncate(serialized.message, MAX_MESSAGE_LENGTH),
       stack: serialized.stack ? truncate(serialized.stack, MAX_STACK_LENGTH) : undefined,
-      context,
-      url: typeof window !== "undefined" ? window.location.href : undefined,
+      context: redactContext(context),
+      url: typeof window !== "undefined" ? sanitizeUrl(window.location.href) : undefined,
       userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
       release: import.meta.env.VITE_APP_VERSION ?? import.meta.env.VITE_COMMIT_SHA ?? undefined,
       env: import.meta.env.MODE,
