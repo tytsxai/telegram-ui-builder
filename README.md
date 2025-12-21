@@ -20,6 +20,7 @@
 - URL: https://tytsxai.github.io/telegram-ui-builder/
 - 部署方式：推送到 `main` 分支后，GitHub Actions 会自动构建并发布（见 `.github/workflows/pages.yml`）
 - 首次启用：在 GitHub 仓库 `Settings → Pages` 中，将 `Build and deployment` 设为 `GitHub Actions`
+- 生产使用前请配置 Actions Secrets：`VITE_SUPABASE_URL`、`VITE_SUPABASE_PUBLISHABLE_KEY`（可选：`VITE_ERROR_REPORTING_URL`/`VITE_ERROR_REPORTING_API_KEY`），否则构建会被 `build:prod` 阻止
 
 ## 目录 / Table of contents
 - TL;DR (最短路径)
@@ -59,6 +60,8 @@ Prereqs: Node.js ≥18, npm.
 | `SUPABASE_ACCESS_TOKEN` | 可选，`supabase gen types` CLI 登录用 |
 | `VITE_ERROR_REPORTING_URL` | 可选，错误上报接收端（生产环境启用） |
 | `VITE_ERROR_REPORTING_API_KEY` | 可选，错误上报鉴权头 |
+| `VITE_APP_VERSION` | 可选，构建版本号（用于错误上报标识） |
+| `VITE_COMMIT_SHA` | 可选，提交版本号（用于错误上报标识） |
 
 > 注意：`.env` 仅供本地使用，不要提交到仓库；请保留 `.env.example` 作为模板。`SUPABASE_SERVICE_ROLE_KEY` 只能用于服务端/脚本，切勿放入任何 `VITE_*` 变量。
 

@@ -36,6 +36,7 @@
 ## Deployment Routing (SPA)
 - Configure a rewrite so all non-asset routes serve `index.html` (e.g., `/share/:token`, `/auth`).
 - Bundled configs: `public/_redirects` (Netlify/Cloudflare Pages), `netlify.toml` (build + redirects), `vercel.json` (rewrites).
+- GitHub Pages SPA fallback uses `public/404.html` and is hardcoded to `/telegram-ui-builder/`; update if your repo/base path changes.
 - Examples:
   - Netlify: `_redirects` with `/* /index.html 200`.
   - Vercel: `rewrites` to `/index.html`.
@@ -46,6 +47,8 @@
 - Ensure `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are set at build time.
 - Supabase URL must be https in production (non-local).
 - Service role keys are rejected on the client; never expose `SUPABASE_SERVICE_ROLE_KEY` via `VITE_*`.
+- Set `VITE_ERROR_REPORTING_URL` in production to capture errors (warns if omitted).
+- Set `VITE_APP_VERSION` or `VITE_COMMIT_SHA` to tag production error reports.
 - Run `npm run check:env` (or `npm run build:prod`) in release pipelines to fail fast on bad env.
 
 ## Key Rotation (Supabase)

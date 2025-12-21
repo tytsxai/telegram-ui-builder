@@ -20,6 +20,8 @@ Target: keep app and Supabase in sync, with strict RLS and typed client coverage
 ## Environment
 - [ ] Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` for each environment (dev/stage/prod); avoid sharing anon keys across envs.
 - [ ] Add `SUPABASE_SERVICE_ROLE_KEY` only to server-side contexts (never shipped to client).
+- [ ] Set `VITE_ERROR_REPORTING_URL` (and API key if needed) for production error capture.
+- [ ] Inject `VITE_APP_VERSION` or `VITE_COMMIT_SHA` in production builds for release tagging.
 - [ ] Enable leaked password protection in Supabase Auth settings for hosted projects.
 - [ ] Run `npm run check:env` (or `npm run build:prod`) in release pipelines to catch missing/placeholder/insecure keys.
 
