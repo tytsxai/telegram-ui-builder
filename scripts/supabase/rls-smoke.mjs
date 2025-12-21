@@ -62,11 +62,15 @@ const clientFor = (token) =>
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
+const normalizeRpcRow = (data) => (Array.isArray(data) ? data[0] : data);
+
 async function main() {
   let owner = null;
   let viewer = null;
   let screenId = "";
   let shareToken = `smoke_${Date.now()}`;
+  let privateScreenId = "";
+  let privateShareToken = `smoke_private_${Date.now()}`;
 
   try {
     owner = await createUser("owner");
@@ -150,6 +154,47 @@ async function main() {
       if (!normalized?.id) throw new Error("Share token not readable by others");
     });
 
+    await check("rpc get_public_screen_by_token omits user_id", async () => {
+      if (!screenId) throw new Error("missing screen id");
+      const { data, error } = await viewerClient.rpc("get_public_screen_by_token", { token: shareToken });
+      if (error) throw error;
+      const row = normalizeRpcRow(data);
+      if (!row?.id) throw new Error("RPC did not return a screen");
+      if ("user_id" in row) throw new Error("RPC response should not include user_id");
+    });
+
+    await check("rpc blocks non-matching token", async () => {
+      const { data, error } = await viewerClient.rpc("get_public_screen_by_token", { token: `${shareToken}_wrong` });
+      if (error) throw error;
+      const row = normalizeRpcRow(data);
+      if (row?.id) throw new Error("RPC should not return any row for a non-matching token");
+    });
+
+    await check("rpc blocks non-public row even with token", async () => {
+      const { data: inserted, error: insertError } = await ownerClient
+        .from("screens")
+        .insert([
+          {
+            user_id: owner.id,
+            name: "Smoke Private Token Screen",
+            message_content: "private",
+            keyboard: [],
+            is_public: false,
+            share_token: privateShareToken,
+          },
+        ])
+        .select("id")
+        .single();
+      if (insertError) throw insertError;
+      if (!inserted?.id) throw new Error("Failed to create private screen");
+      privateScreenId = inserted.id;
+
+      const { data, error } = await viewerClient.rpc("get_public_screen_by_token", { token: privateShareToken });
+      if (error) throw error;
+      const row = normalizeRpcRow(data);
+      if (row?.id) throw new Error("RPC should not return non-public rows even if token matches");
+    });
+
     await check("public screens not readable via direct select", async () => {
       if (!screenId) throw new Error("missing screen id");
       const { data, error } = await viewerClient
@@ -161,6 +206,13 @@ async function main() {
       if ((data ?? []).length > 0) throw new Error("Public screens should not be readable via table select");
     });
 
+    await check("anon cannot directly select screens table", async () => {
+      const { data, error } = await anon.from("screens").select("id").limit(1);
+      if (!error) {
+        throw new Error(`Anon should not be able to SELECT screens directly (got ${(data ?? []).length} rows)`);
+      }
+    });
+
     await check("public screens reject sensitive content", async () => {
       if (!screenId) throw new Error("missing screen id");
       const { error } = await ownerClient
@@ -168,6 +220,20 @@ async function main() {
         .update({ message_content: "Wallet: TXyne3zFjt2n9zye9oSXiZcmGExYaM1jxv" })
         .eq("id", screenId);
       if (!error) throw new Error("Sensitive content should block public screens");
+    });
+
+    await check("public screens reject sensitive data inside keyboard JSON", async () => {
+      if (!screenId) throw new Error("missing screen id");
+      const keyboardWithWallet = [
+        [
+          {
+            text: "Donate TXyne3zFjt2n9zye9oSXiZcmGExYaM1jxv",
+            url: "https://example.com/pay?to=TXyne3zFjt2n9zye9oSXiZcmGExYaM1jxv",
+          },
+        ],
+      ];
+      const { error } = await ownerClient.from("screens").update({ keyboard: keyboardWithWallet }).eq("id", screenId);
+      if (!error) throw new Error("Sensitive content should be blocked when present in keyboard JSON");
     });
 
     await check("public screens still blocked for update by others", async () => {
@@ -182,17 +248,18 @@ async function main() {
 
     console.log("🎉 RLS smoke passed");
   } finally {
-    await cleanup({ ownerId: owner?.id, viewerId: viewer?.id, screenId });
+    await cleanup({ ownerId: owner?.id, viewerId: viewer?.id, screenId, privateScreenId });
   }
 }
 
-const cleanup = async ({ ownerId, viewerId, screenId }) => {
+const cleanup = async ({ ownerId, viewerId, screenId, privateScreenId }) => {
   try {
-    if (screenId) {
-      await admin.from("screen_layouts").delete().eq("screen_id", screenId);
-      await admin.from("user_pins").delete().eq("user_id", ownerId);
-      await admin.from("screens").delete().eq("id", screenId);
+    const screenIds = [screenId, privateScreenId].filter(Boolean);
+    if (screenIds.length > 0) {
+      await admin.from("screen_layouts").delete().in("screen_id", screenIds);
+      await admin.from("screens").delete().in("id", screenIds);
     }
+    if (ownerId) await admin.from("user_pins").delete().eq("user_id", ownerId);
     if (ownerId) await admin.auth.admin.deleteUser(ownerId);
     if (viewerId) await admin.auth.admin.deleteUser(viewerId);
   } catch (e) {

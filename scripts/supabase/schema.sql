@@ -37,7 +37,6 @@ create index if not exists idx_screens_user_id on public.screens(user_id);
 create or replace function public.update_updated_at_column()
 returns trigger
 language plpgsql
-security definer
 set search_path = public
 as $$
 begin
