@@ -84,6 +84,16 @@ if (role === SERVICE_ROLE || role === ADMIN_ROLE) {
   report("error", "Supabase publishable key appears to be a service role key; never expose it to the client.");
 }
 
+const errorReportingUrl = process.env.VITE_ERROR_REPORTING_URL || "";
+if (isProd && !errorReportingUrl) {
+  report("warn", "VITE_ERROR_REPORTING_URL not set; production errors will not be reported.");
+}
+
+const releaseTag = process.env.VITE_APP_VERSION || process.env.VITE_COMMIT_SHA || "";
+if (isProd && !releaseTag) {
+  report("warn", "VITE_APP_VERSION or VITE_COMMIT_SHA not set; error reports will lack release tagging.");
+}
+
 if (warnings.length) {
   console.warn("[env-check] warnings:");
   warnings.forEach((msg) => console.warn(`- ${msg}`));

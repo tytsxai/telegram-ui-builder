@@ -2,7 +2,15 @@ export const FALLBACK_SUPABASE_URL = "http://localhost:54321";
 export const FALLBACK_SUPABASE_PUBLISHABLE_KEY = "test-key";
 const EXAMPLE_SUPABASE_URL = "https://your-project.supabase.co";
 const EXAMPLE_SUPABASE_KEY = "public-anon-key";
-type RuntimeEnv = Pick<ImportMetaEnv, "VITE_SUPABASE_URL" | "VITE_SUPABASE_PUBLISHABLE_KEY" | "PROD">;
+type RuntimeEnv = Pick<
+  ImportMetaEnv,
+  | "VITE_SUPABASE_URL"
+  | "VITE_SUPABASE_PUBLISHABLE_KEY"
+  | "VITE_ERROR_REPORTING_URL"
+  | "VITE_APP_VERSION"
+  | "VITE_COMMIT_SHA"
+  | "PROD"
+>;
 const SERVICE_ROLE = "service_role";
 const ADMIN_ROLE = "supabase_admin";
 
@@ -111,6 +119,20 @@ export const getRuntimeConfigReport = (env: RuntimeEnv = import.meta.env): Runti
     issues.push({
       level: "error",
       message: "Supabase URL must use https in production.",
+    });
+  }
+
+  if (isProd && !env.VITE_ERROR_REPORTING_URL) {
+    issues.push({
+      level: "warning",
+      message: "Error reporting is disabled in production.",
+    });
+  }
+
+  if (isProd && !env.VITE_APP_VERSION && !env.VITE_COMMIT_SHA) {
+    issues.push({
+      level: "warning",
+      message: "Release version not set (VITE_APP_VERSION or VITE_COMMIT_SHA).",
     });
   }
 
