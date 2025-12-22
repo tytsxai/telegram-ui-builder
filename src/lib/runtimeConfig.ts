@@ -87,7 +87,7 @@ export const getRuntimeConfigReport = (env: RuntimeEnv = import.meta.env): Runti
   if (!key) missing.push("VITE_SUPABASE_PUBLISHABLE_KEY");
   if (missing.length > 0) {
     issues.push({
-      level: isProd ? "error" : "warning",
+      level: "warning",
       message: `Missing env: ${missing.join(", ")}.`,
     });
   }
@@ -96,12 +96,12 @@ export const getRuntimeConfigReport = (env: RuntimeEnv = import.meta.env): Runti
   const usingExample = looksLikeExampleValues(url, key);
   if (url && key && (usingFallback || usingExample)) {
     issues.push({
-      level: isProd ? "error" : "warning",
+      level: "warning",
       message: "Supabase env values look like placeholders; replace with real project credentials.",
     });
   }
 
-  if (url && looksLikeLocalSupabaseUrl(url) && isProd && !isLocalHostname()) {
+  if (env.VITE_SUPABASE_URL && looksLikeLocalSupabaseUrl(url) && isProd && !isLocalHostname()) {
     issues.push({
       level: "error",
       message: "Supabase URL points to localhost in production.",
@@ -115,7 +115,7 @@ export const getRuntimeConfigReport = (env: RuntimeEnv = import.meta.env): Runti
     });
   }
 
-  if (url && isProd && isInsecureProdUrl(url)) {
+  if (env.VITE_SUPABASE_URL && isProd && isInsecureProdUrl(url)) {
     issues.push({
       level: "error",
       message: "Supabase URL must use https in production.",
