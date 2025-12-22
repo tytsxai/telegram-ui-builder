@@ -1,4 +1,4 @@
-import { setErrorReporter } from "@/lib/errorReporting";
+import { reportError, sanitizeErrorData, setErrorReporter } from "@/lib/errorReporting";
 
 const MAX_PAYLOAD_BYTES = 32 * 1024;
 const MAX_MESSAGE_LENGTH = 2000;
@@ -11,6 +11,40 @@ type SerializedError = {
 };
 
 const truncate = (value: string, max: number) => (value.length > max ? `${value.slice(0, max)}...` : value);
+
+let globalHandlersAttached = false;
+const globalReportedErrors = new Set<string>();
+
+const shouldReportGlobalError = (error: Error) => {
+  const key = `${error.name}|${error.message}|${error.stack ?? ""}`;
+  if (globalReportedErrors.has(key)) return false;
+  globalReportedErrors.add(key);
+  if (globalReportedErrors.size > 200) {
+    globalReportedErrors.clear();
+  }
+  return true;
+};
+
+const attachGlobalErrorHandlers = () => {
+  if (globalHandlersAttached || typeof window === "undefined") return;
+  globalHandlersAttached = true;
+  window.addEventListener("error", (event) => {
+    const error = event.error instanceof Error ? event.error : new Error(event.message);
+    if (shouldReportGlobalError(error)) {
+      reportError(error, {
+        source: "window_error",
+        details: { filename: event.filename, lineno: event.lineno, colno: event.colno },
+      });
+    }
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    const error = event.reason instanceof Error ? event.reason : new Error(String(event.reason));
+    if (shouldReportGlobalError(error)) {
+      reportError(error, { source: "unhandled_rejection" });
+    }
+  });
+};
 
 const sanitizeUrl = (url: string): string => {
   try {
@@ -145,7 +179,7 @@ export const initErrorReporting = () => {
 
   setErrorReporter((error, context) => {
     const serialized = serializeError(error);
-    const payload = {
+    const payload = sanitizeErrorData({
       ...serialized,
       message: truncate(serialized.message, MAX_MESSAGE_LENGTH),
       stack: serialized.stack ? truncate(serialized.stack, MAX_STACK_LENGTH) : undefined,
@@ -155,7 +189,8 @@ export const initErrorReporting = () => {
       release: import.meta.env.VITE_APP_VERSION ?? import.meta.env.VITE_COMMIT_SHA ?? undefined,
       env: import.meta.env.MODE,
       at: Date.now(),
-    };
+    }) as Record<string, unknown>;
     sendPayload(url, payload, apiKey);
   });
+  attachGlobalErrorHandlers();
 };

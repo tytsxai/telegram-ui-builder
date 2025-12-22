@@ -19,7 +19,8 @@ import { X, Settings } from "lucide-react";
 import type { KeyboardRow, KeyboardButton, Screen } from "@/types/telegram";
 import ButtonEditDialog from "./ButtonEditDialog";
 import clsx from "clsx";
-import { CALLBACK_DATA_MAX_BYTES, MAX_BUTTONS_PER_ROW, getByteLength, getKeyboardValidationErrors } from "@/lib/validation";
+import { CALLBACK_DATA_MAX_BYTES, MAX_BUTTONS_PER_ROW, MAX_KEYBOARD_ROWS, getByteLength, getKeyboardValidationErrors } from "@/lib/validation";
+import { toast } from "sonner";
 
 interface InlineKeyboardProps {
   keyboard: KeyboardRow[];
@@ -47,6 +48,7 @@ const InlineKeyboard = React.memo(({
   const [editingButton, setEditingButton] = useState<string | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedButton, setSelectedButton] = useState<{ row: KeyboardRow; button: KeyboardButton } | null>(null);
+  const overflowWarning = React.useRef({ rows: false, buttons: false });
 
   const focusButton = (rowId: string, buttonId: string) => {
     requestAnimationFrame(() => {
@@ -54,18 +56,26 @@ const InlineKeyboard = React.memo(({
     });
   };
 
+  const displayRows = useMemo(() => {
+    const cappedRows = keyboard.slice(0, MAX_KEYBOARD_ROWS);
+    return cappedRows.map((row) => {
+      if (row.buttons.length <= MAX_BUTTONS_PER_ROW) return row;
+      return { ...row, buttons: row.buttons.slice(0, MAX_BUTTONS_PER_ROW) };
+    });
+  }, [keyboard]);
+
   const getNextFocusAfterDelete = (rowId: string, buttonId: string) => {
-    const rowIndex = keyboard.findIndex((r) => r.id === rowId);
-    const row = keyboard[rowIndex];
+    const rowIndex = displayRows.findIndex((r) => r.id === rowId);
+    const row = displayRows[rowIndex];
     if (!row) return null;
     const idx = row.buttons.findIndex((b) => b.id === buttonId);
     const next = row.buttons[idx + 1];
     if (next) return { rowId, buttonId: next.id };
     const prev = row.buttons[idx - 1];
     if (prev) return { rowId, buttonId: prev.id };
-    const nextRow = keyboard[rowIndex + 1];
+    const nextRow = displayRows[rowIndex + 1];
     if (nextRow?.buttons[0]) return { rowId: nextRow.id, buttonId: nextRow.buttons[0].id };
-    const prevRow = keyboard[rowIndex - 1];
+    const prevRow = displayRows[rowIndex - 1];
     if (prevRow?.buttons.length) {
       const last = prevRow.buttons[prevRow.buttons.length - 1];
       return { rowId: prevRow.id, buttonId: last.id };
@@ -94,6 +104,38 @@ const InlineKeyboard = React.memo(({
     return getKeyboardValidationErrors(keyboard);
   }, [keyboard, readOnly]);
 
+  const rowOverflow = keyboard.length > MAX_KEYBOARD_ROWS;
+  const buttonOverflow = keyboard.some((row) => row.buttons.length > MAX_BUTTONS_PER_ROW);
+  const overflowMessages = useMemo(() => {
+    if (readOnly) return [];
+    const messages: string[] = [];
+    if (rowOverflow) {
+      messages.push(`已超过 Telegram 限制：最多 ${MAX_KEYBOARD_ROWS} 行按钮，超出部分将被隐藏。`);
+    }
+    if (buttonOverflow) {
+      messages.push(`已超过 Telegram 限制：每行最多 ${MAX_BUTTONS_PER_ROW} 个按钮，超出部分将被隐藏。`);
+    }
+    return messages;
+  }, [rowOverflow, buttonOverflow, readOnly]);
+
+  useEffect(() => {
+    if (readOnly) return;
+    if (rowOverflow && !overflowWarning.current.rows) {
+      toast.warning(`已超过 Telegram 限制：最多 ${MAX_KEYBOARD_ROWS} 行按钮，超出部分将被隐藏。`);
+      overflowWarning.current.rows = true;
+    }
+    if (!rowOverflow) {
+      overflowWarning.current.rows = false;
+    }
+    if (buttonOverflow && !overflowWarning.current.buttons) {
+      toast.warning(`已超过 Telegram 限制：每行最多 ${MAX_BUTTONS_PER_ROW} 个按钮，超出部分将被隐藏。`);
+      overflowWarning.current.buttons = true;
+    }
+    if (!buttonOverflow) {
+      overflowWarning.current.buttons = false;
+    }
+  }, [rowOverflow, buttonOverflow, readOnly]);
+
   const handleTextEditClick = (buttonId: string) => {
     setEditingButton(buttonId);
   };
@@ -101,6 +143,7 @@ const InlineKeyboard = React.memo(({
   const handleTextChange = (rowId: string, buttonId: string, newText: string) => {
     // Limit text length to prevent overflow
     const truncatedText = newText.slice(0, 30);
+    if (!onButtonTextChange) return;
     onButtonTextChange(rowId, buttonId, truncatedText);
   };
 
@@ -179,7 +222,7 @@ const InlineKeyboard = React.memo(({
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
       id: `row:${row.id}`,
     });
-    const rowHasTooManyButtons = row.buttons.length > MAX_BUTTONS_PER_ROW;
+    const rowHasTooManyButtons = (keyboard.find((item) => item.id === row.id)?.buttons.length ?? 0) > MAX_BUTTONS_PER_ROW;
     const style = {
       transform: CSS.Transform.toString(transform),
       transition,
@@ -247,7 +290,7 @@ const InlineKeyboard = React.memo(({
           {...listeners}
           onKeyDown={(e) => {
             if (editingButton) return; // let input handle
-            const currentRowIndex = keyboard.findIndex((r) => r.id === row.id);
+            const currentRowIndex = displayRows.findIndex((r) => r.id === row.id);
             const currentBtnIndex = row.buttons.findIndex((b) => b.id === button.id);
             if (e.key === 'Tab') {
               const isShift = e.shiftKey;
@@ -257,7 +300,7 @@ const InlineKeyboard = React.memo(({
                   e.preventDefault();
                   focusButton(row.id, prev.id);
                 } else if (currentRowIndex > 0) {
-                  const prevRow = keyboard[currentRowIndex - 1];
+                  const prevRow = displayRows[currentRowIndex - 1];
                   const target = prevRow.buttons[prevRow.buttons.length - 1];
                   if (target) {
                     e.preventDefault();
@@ -269,10 +312,10 @@ const InlineKeyboard = React.memo(({
                 if (next) {
                   e.preventDefault();
                   focusButton(row.id, next.id);
-                } else if (keyboard[currentRowIndex + 1]?.buttons[0]) {
+                } else if (displayRows[currentRowIndex + 1]?.buttons[0]) {
                   e.preventDefault();
-                  const target = keyboard[currentRowIndex + 1].buttons[0];
-                  focusButton(keyboard[currentRowIndex + 1].id, target.id);
+                  const target = displayRows[currentRowIndex + 1].buttons[0];
+                  focusButton(displayRows[currentRowIndex + 1].id, target.id);
                 }
               }
             } else if (e.key === 'ArrowRight') {
@@ -285,13 +328,13 @@ const InlineKeyboard = React.memo(({
               if (prev) document.getElementById(`kbd-${row.id}-${prev.id}`)?.focus();
             } else if (e.key === 'ArrowUp') {
               e.preventDefault();
-              const prevRow = keyboard[currentRowIndex - 1];
+              const prevRow = displayRows[currentRowIndex - 1];
               if (prevRow && prevRow.buttons[currentBtnIndex]) {
                 document.getElementById(`kbd-${prevRow.id}-${prevRow.buttons[currentBtnIndex].id}`)?.focus();
               }
             } else if (e.key === 'ArrowDown') {
               e.preventDefault();
-              const nextRow = keyboard[currentRowIndex + 1];
+              const nextRow = displayRows[currentRowIndex + 1];
               if (nextRow && nextRow.buttons[currentBtnIndex]) {
                 document.getElementById(`kbd-${nextRow.id}-${nextRow.buttons[currentBtnIndex].id}`)?.focus();
               }
@@ -415,7 +458,25 @@ const InlineKeyboard = React.memo(({
           screens={screens}
         />
       )}
-      <div className="space-y-4 mt-4" data-testid="inline-keyboard">
+      <div
+        className={clsx(
+          "space-y-4 mt-4",
+          displayRows.length > 6 && "max-h-[480px] overflow-y-auto pr-1",
+          !readOnly && (rowOverflow || buttonOverflow) && "rounded-md ring-1 ring-amber-400/50 p-2"
+        )}
+        data-testid="inline-keyboard"
+      >
+        {!readOnly && overflowMessages.length > 0 && (
+          <div
+            className="rounded-md border border-amber-400/40 bg-amber-50 text-amber-900 text-xs px-3 py-2 space-y-1"
+            role="status"
+            aria-live="polite"
+          >
+            {overflowMessages.map((msg) => (
+              <div key={msg}>{msg}</div>
+            ))}
+          </div>
+        )}
         {!readOnly && validationErrors.length > 0 && (
           <div
             className="rounded-md border border-destructive/30 bg-destructive/10 text-destructive text-xs px-3 py-2 space-y-1"
@@ -428,8 +489,8 @@ const InlineKeyboard = React.memo(({
           </div>
         )}
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={keyboard.map((row) => `row:${row.id}`)} strategy={verticalListSortingStrategy}>
-            {keyboard.map((row) => (
+          <SortableContext items={displayRows.map((row) => `row:${row.id}`)} strategy={verticalListSortingStrategy}>
+            {displayRows.map((row) => (
               <SortableRow key={row.id} row={row} />
             ))}
           </SortableContext>

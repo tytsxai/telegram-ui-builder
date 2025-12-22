@@ -1,10 +1,11 @@
 import React from "react";
+import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollBar } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 
 interface BottomPanelProps {
@@ -40,6 +41,231 @@ interface BottomPanelProps {
     onCopyCodegen: () => void;
 }
 
+type PendingItem = NonNullable<BottomPanelProps["pendingItems"]>[number];
+
+const VIRTUALIZE_THRESHOLD = 40;
+const ESTIMATED_ROW_HEIGHT = 88;
+const OVERSCAN_COUNT = 3;
+const ROW_GAP_PX = 8;
+
+const getPendingItemKey = (item: PendingItem) => `${item.kind}-${item.id}`;
+
+const PendingItemRow = React.memo(
+    ({ item, formatTimestamp }: { item: PendingItem; formatTimestamp: (value?: number) => string }) => {
+        const lastFailure = item.failures?.[item.failures.length - 1];
+        const lastMessage = lastFailure?.message ?? item.lastError ?? "待重试";
+        const attempts = item.attempts ?? 0;
+        return (
+            <div
+                className="rounded-md border border-amber-100 bg-amber-50/60 p-2 space-y-1"
+                data-testid={`pending-item-${item.id}`}
+            >
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                        <span className="text-foreground">{item.kind} · {item.id.slice(0, 6)}</span>
+                        <Badge variant="outline" className="h-5 px-2 text-[11px] border-amber-200 text-amber-800 bg-white">
+                            尝试 {attempts}
+                        </Badge>
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">
+                        {formatTimestamp(lastFailure?.at ?? item.lastAttemptAt ?? item.createdAt)}
+                    </span>
+                </div>
+                <div className="text-[11px] text-amber-700 break-words">
+                    {lastMessage}
+                </div>
+                {item.failures && item.failures.length > 1 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                        {item.failures.slice(-3).map((failure) => (
+                            <Badge
+                                key={`${item.id}-${failure.at}-${failure.message}`}
+                                variant="outline"
+                                className="h-5 px-2 text-[11px] border-amber-200 text-amber-800 bg-white"
+                            >
+                                {formatTimestamp(failure.at)} · {failure.message}
+                            </Badge>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    },
+);
+PendingItemRow.displayName = "PendingItemRow";
+
+const MeasuredPendingRow = ({
+    item,
+    formatTimestamp,
+    onHeightChange,
+    isLast,
+}: {
+    item: PendingItem;
+    formatTimestamp: (value?: number) => string;
+    onHeightChange: (key: string, height: number) => void;
+    isLast: boolean;
+}) => {
+    const rowRef = React.useRef<HTMLDivElement | null>(null);
+    const key = getPendingItemKey(item);
+
+    React.useLayoutEffect(() => {
+        const node = rowRef.current;
+        if (!node) return;
+        const measure = () => {
+            onHeightChange(key, node.offsetHeight);
+        };
+        measure();
+        if (typeof ResizeObserver === "undefined") return;
+        const observer = new ResizeObserver(measure);
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, [isLast, item, key, onHeightChange]);
+
+    return (
+        <div ref={rowRef} className={isLast ? "" : "pb-2"}>
+            <PendingItemRow item={item} formatTimestamp={formatTimestamp} />
+        </div>
+    );
+};
+
+const PendingItemsList = React.memo(({
+    items,
+    formatTimestamp,
+}: {
+    items: PendingItem[];
+    formatTimestamp: (value?: number) => string;
+}) => {
+    const useVirtualization = items.length >= VIRTUALIZE_THRESHOLD;
+    const viewportRef = React.useRef<HTMLDivElement | null>(null);
+    const [scrollTop, setScrollTop] = React.useState(0);
+    const [viewportHeight, setViewportHeight] = React.useState(128);
+    const scrollTopRef = React.useRef(0);
+    const rafRef = React.useRef<number | null>(null);
+    const measuredHeightsRef = React.useRef(new Map<string, number>());
+    const [measureVersion, setMeasureVersion] = React.useState(0);
+
+    const handleHeightChange = React.useCallback((key: string, height: number) => {
+        const rounded = Math.max(1, Math.ceil(height));
+        const existing = measuredHeightsRef.current.get(key);
+        if (existing === rounded) return;
+        measuredHeightsRef.current.set(key, rounded);
+        setMeasureVersion((prev) => prev + 1);
+    }, []);
+
+    React.useEffect(() => {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        const updateHeight = () => {
+            setViewportHeight(viewport.clientHeight || 128);
+        };
+        updateHeight();
+        if (typeof ResizeObserver === "undefined") return;
+        const observer = new ResizeObserver(updateHeight);
+        observer.observe(viewport);
+        return () => observer.disconnect();
+    }, []);
+
+    React.useEffect(() => () => {
+        if (rafRef.current !== null) {
+            cancelAnimationFrame(rafRef.current);
+        }
+    }, []);
+
+    const onScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
+        const nextScrollTop = event.currentTarget.scrollTop;
+        if (scrollTopRef.current === nextScrollTop) return;
+        scrollTopRef.current = nextScrollTop;
+        if (rafRef.current !== null) return;
+        setScrollTop(nextScrollTop);
+        rafRef.current = requestAnimationFrame(() => {
+            rafRef.current = null;
+            if (scrollTopRef.current !== nextScrollTop) {
+                setScrollTop(scrollTopRef.current);
+            }
+        });
+    }, []);
+
+    const { slice, paddingTop, paddingBottom } = React.useMemo(() => {
+        const measurements = items.map((item) => {
+            const key = getPendingItemKey(item);
+            const measured = measuredHeightsRef.current.get(key);
+            const height = measured ?? ESTIMATED_ROW_HEIGHT + ROW_GAP_PX;
+            return { item, key, height };
+        });
+        let offset = 0;
+        const offsets = measurements.map((entry) => {
+            const start = offset;
+            offset += entry.height;
+            return { ...entry, start };
+        });
+        const totalHeight = offsets.length ? offsets[offsets.length - 1].start + offsets[offsets.length - 1].height : 0;
+
+        const findIndex = (targetOffset: number) => {
+            if (!offsets.length) return 0;
+            let low = 0;
+            let high = offsets.length - 1;
+            while (low <= high) {
+                const mid = Math.floor((low + high) / 2);
+                const { start, height } = offsets[mid];
+                if (targetOffset < start) {
+                    high = mid - 1;
+                } else if (targetOffset >= start + height) {
+                    low = mid + 1;
+                } else {
+                    return mid;
+                }
+            }
+            return Math.min(low, offsets.length - 1);
+        };
+
+        if (!useVirtualization) {
+            return { slice: offsets, paddingTop: 0, paddingBottom: 0 };
+        }
+
+        const rawStart = Math.max(0, findIndex(scrollTop) - OVERSCAN_COUNT);
+        const rawEnd = Math.min(items.length, findIndex(scrollTop + viewportHeight) + OVERSCAN_COUNT + 1);
+        const slice = offsets.slice(rawStart, rawEnd);
+        const paddingTop = offsets[rawStart]?.start ?? 0;
+        const last = offsets[rawEnd - 1];
+        const paddingBottom = last ? Math.max(0, totalHeight - (last.start + last.height)) : 0;
+
+        return {
+            slice,
+            paddingTop,
+            paddingBottom,
+        };
+    }, [items, measureVersion, scrollTop, useVirtualization, viewportHeight]);
+
+    const lastItemKey = items.length ? getPendingItemKey(items[items.length - 1]) : null;
+
+    return (
+        <ScrollAreaPrimitive.Root className="h-32 mt-2 rounded border border-amber-200/60">
+            <ScrollAreaPrimitive.Viewport
+                ref={viewportRef}
+                className="h-full w-full rounded-[inherit]"
+                onScroll={onScroll}
+                data-testid="pending-items-viewport"
+            >
+                <div className="p-2 text-xs text-muted-foreground">
+                    <div style={{ paddingTop, paddingBottom }}>
+                        {slice.map((entry) => (
+                            <MeasuredPendingRow
+                                key={entry.key}
+                                item={entry.item}
+                                formatTimestamp={formatTimestamp}
+                                onHeightChange={handleHeightChange}
+                                isLast={lastItemKey === entry.key}
+                            />
+                        ))}
+                    </div>
+                </div>
+            </ScrollAreaPrimitive.Viewport>
+            <ScrollBar />
+            <ScrollAreaPrimitive.Corner />
+        </ScrollAreaPrimitive.Root>
+    );
+});
+PendingItemsList.displayName = "PendingItemsList";
+
 export const BottomPanel: React.FC<BottomPanelProps> = ({
     editableJSON,
     onEditableJSONChange,
@@ -64,14 +290,14 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
 }) => {
     const [confirmOpen, setConfirmOpen] = React.useState(false);
     const hasPendingErrors = pendingItems.some((item) => !!item.lastError);
-    const formatTimestamp = (value?: number) => {
+    const formatTimestamp = React.useCallback((value?: number) => {
         if (!value) return "未记录";
         try {
             return new Date(value).toLocaleTimeString();
         } catch {
             return "未记录";
         }
-    };
+    }, []);
 
     return (
         <div className="p-4 space-y-4">
@@ -120,46 +346,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
                                 </Button>
                             </div>
                             {pendingItems.length > 0 && (
-                                <ScrollArea className="h-32 mt-2 rounded border border-amber-200/60">
-                                    <div className="p-2 space-y-2 text-xs text-muted-foreground">
-                                        {pendingItems.map((item) => {
-                                            const lastFailure = item.failures?.[item.failures.length - 1];
-                                            const lastMessage = lastFailure?.message ?? item.lastError ?? "待重试";
-                                            const attempts = item.attempts ?? 0;
-                                            return (
-                                                <div key={item.id} className="rounded-md border border-amber-100 bg-amber-50/60 p-2 space-y-1">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-foreground">{item.kind} · {item.id.slice(0, 6)}</span>
-                                                            <Badge variant="outline" className="h-5 px-2 text-[11px] border-amber-200 text-amber-800 bg-white">
-                                                                尝试 {attempts}
-                                                            </Badge>
-                                                        </div>
-                                                        <span className="text-[11px] text-muted-foreground">
-                                                            {formatTimestamp(lastFailure?.at ?? item.lastAttemptAt ?? item.createdAt)}
-                                                        </span>
-                                                    </div>
-                                                    <div className="text-[11px] text-amber-700 break-words">
-                                                        {lastMessage}
-                                                    </div>
-                                                    {item.failures && item.failures.length > 1 && (
-                                                        <div className="flex flex-wrap gap-1 pt-1">
-                                                            {item.failures.slice(-3).map((failure, idx) => (
-                                                                <Badge
-                                                                    key={`${item.id}-${idx}`}
-                                                                    variant="outline"
-                                                                    className="h-5 px-2 text-[11px] border-amber-200 text-amber-800 bg-white"
-                                                                >
-                                                                    {formatTimestamp(failure.at)} · {failure.message}
-                                                                </Badge>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </ScrollArea>
+                                <PendingItemsList items={pendingItems} formatTimestamp={formatTimestamp} />
                             )}
                         </AlertDescription>
                     </Alert>
@@ -184,7 +371,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
                             </strong>
                             <div className="mt-1 max-h-20 overflow-y-auto">
                                 {circularReferences.map((circle, idx) => (
-                                    <div key={idx} className="text-muted-foreground">
+                                    <div key={`${circle.path.join(".")}::${circle.screenNames.join("|")}`} className="text-muted-foreground">
                                         • {circle.screenNames.join(' → ')}
                                     </div>
                                 ))}

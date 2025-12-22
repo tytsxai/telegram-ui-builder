@@ -20,6 +20,8 @@ interface State {
  * 捕获子组件树中的 JavaScript 错误，记录错误并显示备用 UI
  */
 class ErrorBoundary extends Component<Props, State> {
+  private static reportedErrorKeys = new Set<string>();
+
   constructor(props: Props) {
     super(props);
     this.state = {
@@ -41,10 +43,12 @@ class ErrorBoundary extends Component<Props, State> {
     // 记录错误信息
     console.error('ErrorBoundary caught an error:', error, errorInfo);
 
-    reportError(error, {
-      source: 'react_error_boundary',
-      details: { componentStack: errorInfo.componentStack },
-    });
+    if (ErrorBoundary.shouldReportError(error)) {
+      reportError(error, {
+        source: 'react_error_boundary',
+        details: { componentStack: errorInfo.componentStack },
+      });
+    }
     
     this.setState({
       error,
@@ -53,6 +57,18 @@ class ErrorBoundary extends Component<Props, State> {
 
     // 可以在这里发送错误到日志服务
     // logErrorToService(error, errorInfo);
+  }
+
+  private static shouldReportError(error: Error): boolean {
+    const key = `${error.name}|${error.message}|${error.stack ?? ''}`;
+    if (ErrorBoundary.reportedErrorKeys.has(key)) {
+      return false;
+    }
+    ErrorBoundary.reportedErrorKeys.add(key);
+    if (ErrorBoundary.reportedErrorKeys.size > 200) {
+      ErrorBoundary.reportedErrorKeys.clear();
+    }
+    return true;
   }
 
   handleReset = () => {
