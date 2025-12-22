@@ -66,11 +66,13 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
   const queuedToastShownRef = useRef(false);
   const [pendingOpsNotice, setPendingOpsNotice] = useState(false);
   const [retryingQueue, setRetryingQueue] = useState(false);
+  const [pendingQueueVersion, setPendingQueueVersion] = useState(0);
 
   const refreshPendingQueueSize = useCallback(() => {
     const size = readPendingOps(user?.id).length;
     setPendingQueueSize(size);
     setPendingOpsNotice(size > 0);
+    setPendingQueueVersion((prev) => prev + 1);
     if (size === 0) {
       queuedToastShownRef.current = false;
     }
@@ -84,7 +86,16 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
     (payload: SaveScreenInput) => {
       const id = payload.id ?? safeRandomId();
       const queuedPayload = { ...payload, id };
-      enqueueSaveOperation(queuedPayload, user?.id);
+      void (async () => {
+        try {
+          await enqueueSaveOperation(queuedPayload, user?.id);
+        } catch (error) {
+          console.error("[OfflineQueue] Failed to enqueue save:", error);
+          toast.error("离线保存失败，可能无法恢复");
+        } finally {
+          refreshPendingQueueSize();
+        }
+      })();
       setScreens((prev) => [
         ...prev,
         {
@@ -103,7 +114,6 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
         } as Screen,
       ]);
       setCurrentScreenId(id);
-      refreshPendingQueueSize();
       setPendingOpsNotice(true);
       if (!queuedToastShownRef.current) {
         toast.info("网络不可用，已排队保存请求");
@@ -116,7 +126,16 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
   const queueUpdateOperation = useCallback(
     (updatePayload: TablesUpdate<"screens">) => {
       if (!currentScreenId) return;
-      enqueueUpdateOperation({ id: currentScreenId, update: updatePayload }, user?.id);
+      void (async () => {
+        try {
+          await enqueueUpdateOperation({ id: currentScreenId, update: updatePayload }, user?.id);
+        } catch (error) {
+          console.error("[OfflineQueue] Failed to enqueue update:", error);
+          toast.error("离线更新失败，可能无法恢复");
+        } finally {
+          refreshPendingQueueSize();
+        }
+      })();
       setScreens((prev) =>
         prev.map((s) =>
           s.id === currentScreenId
@@ -130,7 +149,6 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
             : s,
         ),
       );
-      refreshPendingQueueSize();
       setPendingOpsNotice(true);
       if (!queuedToastShownRef.current) {
         toast.info("网络不可用，更新已排队");
@@ -200,8 +218,7 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
           toast.error("离线队列重试失败，请检查网络后重试");
         },
       });
-      setPendingQueueSize(remaining.length);
-      setPendingOpsNotice(remaining.length > 0);
+      refreshPendingQueueSize();
       if (remaining.length === 0) {
         queuedToastShownRef.current = false;
         toast.success("离线队列已同步");
@@ -231,6 +248,7 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
 
   return {
     pendingOpsNotice,
+    pendingQueueVersion,
     retryingQueue,
     refreshPendingQueueSize,
     queueSaveOperation,
@@ -239,4 +257,3 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
     clearPendingQueue,
   };
 };
-

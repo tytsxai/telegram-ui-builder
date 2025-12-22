@@ -41,6 +41,22 @@ const STORAGE_VERSION = "v2";
 const buildKey = (userId?: string | null) => `pending_ops_${STORAGE_VERSION}_${userId ?? "anon"}`;
 const now = () => Date.now();
 const MAX_FAILURE_LOG = 5;
+const MAX_QUEUE_SIZE = 100;
+const memoryFallbackQueue = new Map<string, PendingItem[]>();
+
+// Simple lock to prevent concurrent read-modify-write race conditions
+let writeLock: Promise<void> = Promise.resolve();
+const withLock = async <T>(fn: () => T | Promise<T>): Promise<T> => {
+  const prevLock = writeLock;
+  let release: () => void;
+  writeLock = new Promise((resolve) => { release = resolve; });
+  await prevLock;
+  try {
+    return await fn();
+  } finally {
+    release!();
+  }
+};
 const genId = () => {
   try {
     // @ts-expect-error crypto may not exist in all environments
@@ -61,27 +77,93 @@ export class PersistError extends Error {
   }
 }
 
+const isQuotaExceeded = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+  const name = typeof (error as { name?: string }).name === "string" ? (error as { name?: string }).name : "";
+  const code = typeof (error as { code?: number }).code === "number" ? (error as { code?: number }).code : undefined;
+  return name === "QuotaExceededError" || name === "NS_ERROR_DOM_QUOTA_REACHED" || code === 22 || code === 1014;
+};
+
+const isStorageFullError = (error: unknown) => {
+  if (isQuotaExceeded(error)) return true;
+  const message =
+    typeof (error as { message?: string }).message === "string"
+      ? (error as { message?: string }).message
+      : typeof error === "string"
+        ? error
+        : "";
+  const name = typeof (error as { name?: string }).name === "string" ? (error as { name?: string }).name : "";
+  const combined = `${name} ${message}`.toLowerCase();
+  return (
+    (combined.includes("quota") && combined.includes("exceed")) ||
+    (combined.includes("storage") && (combined.includes("full") || combined.includes("quota") || combined.includes("exceed")))
+  );
+};
+
+const trimQueue = (items: PendingItem[]) => {
+  if (items.length <= MAX_QUEUE_SIZE) {
+    return { items, dropped: 0 };
+  }
+  const dropped = items.length - MAX_QUEUE_SIZE;
+  return { items: items.slice(dropped), dropped };
+};
+
+const notifyQueueTrim = (dropped: number) => {
+  if (dropped <= 0) return;
+  console.warn(`[PendingQueue] Dropped ${dropped} item(s) to stay within ${MAX_QUEUE_SIZE} entries.`);
+  publishSyncEvent({
+    scope: "queue",
+    status: {
+      state: "error",
+      requestId: "queue-trim",
+      message: `Offline queue exceeded ${MAX_QUEUE_SIZE} entries; dropped ${dropped}.`,
+      at: now(),
+    },
+  });
+};
+
 const persist = (items: PendingItem[], userId?: string | null): boolean => {
   if (typeof localStorage === "undefined") return false;
+  const { items: trimmed, dropped } = trimQueue(items);
+  notifyQueueTrim(dropped);
+  const key = buildKey(userId);
   try {
-    localStorage.setItem(buildKey(userId), JSON.stringify(items));
+    localStorage.setItem(key, JSON.stringify(trimmed));
+    memoryFallbackQueue.delete(key);
     return true;
   } catch (e) {
+    if (isStorageFullError(e)) {
+      console.warn("[PendingQueue] Storage quota exceeded; using in-memory fallback queue.");
+      memoryFallbackQueue.set(key, trimmed);
+      publishSyncEvent({
+        scope: "queue",
+        status: {
+          state: "error",
+          requestId: "queue-quota",
+          message: "Offline queue stored in memory due to storage quota limit.",
+          at: now(),
+        },
+      });
+      return false;
+    }
     console.error("[PendingQueue] Failed to persist queue:", e);
     throw new PersistError("Failed to persist offline queue. Storage may be full.", e);
   }
 };
 
 export const clearPendingOps = (userId?: string | null) => {
+  const key = buildKey(userId);
+  memoryFallbackQueue.delete(key);
   if (typeof localStorage === "undefined") return;
   try {
-    localStorage.removeItem(buildKey(userId));
+    localStorage.removeItem(key);
   } catch (e) {
     void e;
   }
 };
 
 const reviveLegacy = (userId: string | null | undefined) => {
+  if (typeof localStorage === "undefined") return [];
   try {
     const rawV1 = localStorage.getItem(`pending_ops_${userId ?? "anon"}`);
     if (!rawV1) return [] as PendingItem[];
@@ -138,6 +220,11 @@ const reviveLegacy = (userId: string | null | undefined) => {
 };
 
 export const readPendingOps = (userId?: string | null): PendingItem[] => {
+  const key = buildKey(userId);
+  const fallback = memoryFallbackQueue.get(key);
+  if (fallback) {
+    return [...fallback];
+  }
   if (typeof localStorage === "undefined") return [];
   const normalizeFailures = (item: unknown, fallbackMessage?: string, fallbackAt?: number): PendingFailure[] | undefined => {
     if (!item) {
@@ -170,13 +257,13 @@ export const readPendingOps = (userId?: string | null): PendingItem[] => {
   };
 
   try {
-    const raw = localStorage.getItem(buildKey(userId));
+    const raw = localStorage.getItem(key);
     if (!raw) {
       return reviveLegacy(userId);
     }
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const hydrated = parsed
       .map((item) => {
         if (!item || typeof item !== "object") return null;
         if (!("id" in item) || !("kind" in item)) return null;
@@ -188,41 +275,50 @@ export const readPendingOps = (userId?: string | null): PendingItem[] => {
         return { ...item, attempts, createdAt, lastAttemptAt, failures, lastError } as PendingItem;
       })
       .filter(Boolean) as PendingItem[];
+    const { items: trimmed, dropped } = trimQueue(hydrated);
+    if (dropped > 0) {
+      persist(trimmed, userId);
+    }
+    return trimmed;
   } catch {
     return [];
   }
 };
 
-export const enqueueSaveOperation = (payload: SavePayload, userId?: string | null): PendingItem => {
-  const queue = readPendingOps(userId);
-  const op: PendingItem = {
-    id: genId(),
-    kind: "save",
-    payload,
-    createdAt: now(),
-    attempts: 0,
-    failures: [],
-  };
-  queue.push(op);
-  persist(queue, userId);
-  return op;
+export const enqueueSaveOperation = async (payload: SavePayload, userId?: string | null): Promise<PendingItem> => {
+  return withLock(() => {
+    const queue = readPendingOps(userId);
+    const op: PendingItem = {
+      id: genId(),
+      kind: "save",
+      payload,
+      createdAt: now(),
+      attempts: 0,
+      failures: [],
+    };
+    queue.push(op);
+    persist(queue, userId);
+    return op;
+  });
 };
 
-export const enqueueUpdateOperation = (payload: UpdatePayload, userId?: string | null): PendingItem => {
-  const queue = readPendingOps(userId);
-  // Replace older updates targeting the same screen to avoid stale writes
-  const nextQueue = queue.filter((item) => !(item.kind === "update" && item.payload.id === payload.id));
-  const op: PendingItem = {
-    id: genId(),
-    kind: "update",
-    payload,
-    createdAt: now(),
-    attempts: 0,
-    failures: [],
-  };
-  nextQueue.push(op);
-  persist(nextQueue, userId);
-  return op;
+export const enqueueUpdateOperation = async (payload: UpdatePayload, userId?: string | null): Promise<PendingItem> => {
+  return withLock(() => {
+    const queue = readPendingOps(userId);
+    // Replace older updates targeting the same screen to avoid stale writes
+    const nextQueue = queue.filter((item) => !(item.kind === "update" && item.payload.id === payload.id));
+    const op: PendingItem = {
+      id: genId(),
+      kind: "update",
+      payload,
+      createdAt: now(),
+      attempts: 0,
+      failures: [],
+    };
+    nextQueue.push(op);
+    persist(nextQueue, userId);
+    return op;
+  });
 };
 
 type ProcessOptions = {

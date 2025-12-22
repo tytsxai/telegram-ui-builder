@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { shallow } from "zustand/shallow";
 import { supabase } from "@/integrations/supabase/client";
 import { useChatState } from "@/hooks/chat/useChatState";
 import { useSupabaseSync } from "@/hooks/chat/useSupabaseSync";
@@ -53,6 +54,14 @@ const isSensitiveShareError = (error: unknown) => {
   const message = (error as { message?: string }).message ?? "";
   const code = (error as { code?: string }).code ?? "";
   return code === "23514" || message.includes("screens_public_no_sensitive");
+};
+
+const useShallowMemo = <T,>(value: T, isEqual: (a: T, b: T) => boolean = shallow as unknown as (a: T, b: T) => boolean) => {
+  const ref = useRef(value);
+  if (!isEqual(ref.current, value)) {
+    ref.current = value;
+  }
+  return ref.current;
 };
 
 export const useBuilderStore = () => {
@@ -193,9 +202,19 @@ export const useBuilderStore = () => {
     entryScreenId,
     handleNavigateBack,
     handleNavigateToScreen,
-    handleSetEntry,
-    handleJumpToEntry
+    handleSetEntry
   } = useScreenNavigation(screens, setScreens, loadScreens);
+
+  const screenById = useMemo(() => new Map(screens.map((screen) => [screen.id, screen])), [screens]);
+  const currentScreen = useMemo(
+    () => (currentScreenId ? screenById.get(currentScreenId) ?? null : null),
+    [currentScreenId, screenById],
+  );
+  const entryScreen = useMemo(
+    () => (entryScreenId ? screenById.get(entryScreenId) ?? null : null),
+    [entryScreenId, screenById],
+  );
+  const currentScreenName = useMemo(() => currentScreen?.name ?? null, [currentScreen]);
 
   const {
     codegenFramework,
@@ -206,6 +225,7 @@ export const useBuilderStore = () => {
 
   const {
     pendingOpsNotice,
+    pendingQueueVersion,
     retryingQueue,
     refreshPendingQueueSize,
     queueSaveOperation,
@@ -458,13 +478,12 @@ export const useBuilderStore = () => {
 
   const openRenameDialog = useCallback(() => {
     if (currentScreenId) {
-      const screen = screens.find(s => s.id === currentScreenId);
-      if (screen) {
-        setRenameValue(screen.name);
+      if (currentScreen) {
+        setRenameValue(currentScreen.name);
         setRenameDialogOpen(true);
       }
     }
-  }, [currentScreenId, screens]);
+  }, [currentScreen, currentScreenId]);
 
   const handleRenameScreen = useCallback(async () => {
     if (!currentScreenId || !renameValue.trim()) return;
@@ -523,13 +542,12 @@ export const useBuilderStore = () => {
       toast.error("请先设置入口模版");
       return null;
     }
-    const target = screens.find((s) => s.id === entryScreenId);
-    if (!target) {
+    if (!entryScreen) {
       toast.error("入口模版不存在，请重新选择");
       return null;
     }
-    return target;
-  }, [entryScreenId, screens]);
+    return entryScreen;
+  }, [entryScreen, entryScreenId, screens]);
 
   const exportFlowAsJSON = useCallback(() => {
     const entry = resolveEntryScreen();
@@ -985,14 +1003,69 @@ export const useBuilderStore = () => {
     messageBubbleRef.current?.focus();
   }, []);
 
-  const builderStatus = {
+  const [pendingItemsRaw, setPendingItemsRaw] = useState(() => readPendingOps(user?.id));
+  const pendingQueueSizeRef = useRef(pendingQueueSize);
+  const pendingQueueUserRef = useRef(user?.id);
+  const pendingQueueVersionRef = useRef(pendingQueueVersion);
+
+  useEffect(() => {
+    const previousSize = pendingQueueSizeRef.current;
+    const previousUserId = pendingQueueUserRef.current;
+    const previousVersion = pendingQueueVersionRef.current;
+
+    if (previousSize !== pendingQueueSize || previousUserId !== user?.id || previousVersion !== pendingQueueVersion) {
+      setPendingItemsRaw(readPendingOps(user?.id));
+    }
+
+    pendingQueueSizeRef.current = pendingQueueSize;
+    pendingQueueUserRef.current = user?.id;
+    pendingQueueVersionRef.current = pendingQueueVersion;
+  }, [pendingQueueSize, pendingQueueVersion, user?.id]);
+  const pendingItems = useShallowMemo(pendingItemsRaw);
+  const pendingItemsCount = pendingItems.length;
+
+  const builderStatus = useMemo(() => ({
     isOnline: !isOffline,
-    pendingCount: pendingQueueSize,
+    pendingCount: pendingItemsCount,
     unsaved: hasUnsavedChanges,
     lastSavedAt: lastSavedSnapshot?.messageContent ? "刚刚" : null,
-  };
+  }), [hasUnsavedChanges, isOffline, lastSavedSnapshot?.messageContent, pendingItemsCount]);
 
-  const pendingItems = readPendingOps(user?.id);
+  const handleLoadScreen = useCallback(
+    (id: string) => {
+      handleNavigateToScreen(id);
+      const screen = screenById.get(id);
+      if (screen) {
+        applyScreenState(screen);
+      }
+    },
+    [applyScreenState, handleNavigateToScreen, screenById],
+  );
+
+  const handleDeleteAllScreens = useCallback(async () => {
+    try {
+      setIsClearingScreens(true);
+      await deleteAllScreens();
+    } finally {
+      setIsClearingScreens(false);
+    }
+  }, [deleteAllScreens]);
+
+  const handleSetEntrySelection = useCallback(
+    (id: string | null) => handleSetEntry(id),
+    [handleSetEntry],
+  );
+
+  const handleJumpToEntryPanel = useCallback(() => {
+    const entry = resolveEntryScreen();
+    if (entry) {
+      handleNavigateToScreen(entry.id);
+      applyScreenState(entry);
+    }
+  }, [applyScreenState, handleNavigateToScreen, resolveEntryScreen]);
+
+  const handleOpenImport = useCallback(() => setImportDialogOpen(true), [setImportDialogOpen]);
+  const handleOpenFlowDiagram = useCallback(() => setFlowDiagramOpen(true), [setFlowDiagramOpen]);
 
   const leftPanelProps = useMemo(() => ({
     user,
@@ -1006,47 +1079,26 @@ export const useBuilderStore = () => {
     hasUnsavedChanges,
     isOffline,
     onLogout: handleLogout,
-    onLoadScreen: (id: string) => {
-      handleNavigateToScreen(id);
-      const screen = screens.find(s => s.id === id);
-      if (screen) {
-        applyScreenState(screen);
-      }
-    },
+    onLoadScreen: handleLoadScreen,
     onNewScreen: createNewScreen,
     onSaveScreen: handleSaveScreen,
     onUpdateScreen: handleUpdateScreen,
     onDeleteScreen: deleteScreen,
-    onDeleteAllScreens: async () => {
-      try {
-        setIsClearingScreens(true);
-        await deleteAllScreens();
-      } finally {
-        setIsClearingScreens(false);
-      }
-    },
+    onDeleteAllScreens: handleDeleteAllScreens,
     onTogglePin: handleTogglePin,
-    onSetEntry: (id: string | null) => handleSetEntry(id),
-    onJumpToEntry: () => {
-      const entry = resolveEntryScreen();
-      if (entry) {
-        handleNavigateToScreen(entry.id);
-        applyScreenState(entry);
-      }
-    },
+    onSetEntry: handleSetEntrySelection,
+    onJumpToEntry: handleJumpToEntryPanel,
     onCopyOrShare: handleCopyOrShare,
     onRotateShareLink: handleRotateShareLink,
     onUnshareScreen: handleUnshareScreen,
-    onOpenImport: () => setImportDialogOpen(true),
+    onOpenImport: handleOpenImport,
     onCopyJSON: handleCopyJSON,
     onExportJSON: handleExportJSON,
     onExportFlow: exportFlowAsJSON,
-    onOpenFlowDiagram: () => setFlowDiagramOpen(true),
+    onOpenFlowDiagram: handleOpenFlowDiagram,
   }), [
-    applyScreenState,
     createNewScreen,
     currentScreenId,
-    deleteAllScreens,
     deleteScreen,
     entryScreenId,
     exportFlowAsJSON,
@@ -1054,22 +1106,23 @@ export const useBuilderStore = () => {
     handleCopyOrShare,
     handleExportJSON,
     handleLogout,
+    handleLoadScreen,
+    handleDeleteAllScreens,
     handleRotateShareLink,
+    handleSetEntrySelection,
+    handleJumpToEntryPanel,
     handleUnshareScreen,
-    handleNavigateToScreen,
     handleSaveScreen,
-    handleSetEntry,
     handleUpdateScreen,
     handleTogglePin,
+    handleOpenImport,
+    handleOpenFlowDiagram,
     hasUnsavedChanges,
     isClearingScreens,
     isLoading,
     isOffline,
     pinnedIds,
-    resolveEntryScreen,
     screens,
-    setFlowDiagramOpen,
-    setImportDialogOpen,
     shareLoading,
     user,
   ]);
@@ -1081,7 +1134,7 @@ export const useBuilderStore = () => {
       lastSavedAt: builderStatus.lastSavedAt,
       isOnline: builderStatus.isOnline,
     }),
-    [builderStatus.isOnline, builderStatus.lastSavedAt, builderStatus.pendingCount, builderStatus.unsaved]
+    [builderStatus]
   );
 
   const onboardingVisible = useMemo(
@@ -1153,7 +1206,7 @@ export const useBuilderStore = () => {
     navigationHistory,
     currentScreenId,
     onNavigateBack: handleNavigateBack,
-    currentScreenName: screens.find(s => s.id === currentScreenId)?.name,
+    currentScreenName,
     entryScreenId,
     hasUnsavedChanges,
     isOffline,
@@ -1193,6 +1246,7 @@ export const useBuilderStore = () => {
     shareSyncStatus,
     togglePreviewMode,
     undo,
+    currentScreenName,
   ]);
 
   const bottomPanelProps = useMemo(() => ({
@@ -1246,142 +1300,170 @@ export const useBuilderStore = () => {
     user?.id,
   ]);
 
-  const dialogState = useMemo(() => ({
-    buttonEditor: {
-      open: buttonEditDialogOpen,
-      data: editingButtonData,
-      screens,
-      onClose: () => {
-        setButtonEditDialogOpen(false);
-        setEditingButtonData(null);
-      },
-      onSave: (updatedButton: KeyboardButton) => {
-        if (!editingButtonData) return;
-        handleButtonUpdate(editingButtonData.rowId, editingButtonData.buttonId, updatedButton);
-        setButtonEditDialogOpen(false);
-        setEditingButtonData(null);
-      },
-      onOpenScreen: (screenId: string) => {
-        handleNavigateToScreen(screenId);
-        const screen = screens.find(s => s.id === screenId);
-        if (screen) {
-          applyScreenState(screen);
-        }
-        toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);
-      },
-      onCreateAndOpen: () => {
-        createNewScreen();
-        toast.info("🆕 已创建新模版，请先保存以便可被链接");
-      },
+  const buttonEditorDialog = useMemo(() => ({
+    open: buttonEditDialogOpen,
+    data: editingButtonData,
+    screens,
+    onClose: () => {
+      setButtonEditDialogOpen(false);
+      setEditingButtonData(null);
     },
-    importDialog: {
-      open: importDialogOpen,
-      setOpen: setImportDialogOpen,
-      importJSON,
-      setImportJSON,
-      isImporting,
-      onImport: handleImportJSON,
-      fileInputRef,
-      onFileSelect: handleImportFileSelect,
+    onSave: (updatedButton: KeyboardButton) => {
+      if (!editingButtonData) return;
+      handleButtonUpdate(editingButtonData.rowId, editingButtonData.buttonId, updatedButton);
+      setButtonEditDialogOpen(false);
+      setEditingButtonData(null);
     },
-    renameDialog: {
-      open: renameDialogOpen,
-      setOpen: setRenameDialogOpen,
-      value: renameValue,
-      setValue: setRenameValue,
-      onSave: handleRenameScreen,
+    onOpenScreen: (screenId: string) => {
+      handleNavigateToScreen(screenId);
+      const screen = screenById.get(screenId);
+      if (screen) {
+        applyScreenState(screen);
+      }
+      toast.success(`✅ 已跳转到: ${screen?.name ?? "Unknown"}`);
     },
-    flowDiagram: {
-      open: flowDiagramOpen,
-      setOpen: setFlowDiagramOpen,
-      screens,
-      currentScreenId,
-      userId: user?.id,
-      entryScreenId,
-      pinnedIds,
-      onLayoutSync: setLayoutSyncStatus,
-      onCreateLink: handleCreateLink,
-      onScreenClick: (screenId: string) => {
-        handleNavigateToScreen(screenId);
-        const screen = screens.find(s => s.id === screenId);
-        if (screen) {
-          applyScreenState(screen);
-        }
-        toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);
-      },
-      onSetEntry: handleSetEntry,
-      onDeleteScreen: deleteScreen,
-    },
-    circularDialog: {
-      open: circularDialogOpen,
-      setOpen: setCircularDialogOpen,
-      circularPaths: detectedCircularPaths.map(path => ({
-        path,
-        screenNames: path.map(id => screens.find(s => s.id === id)?.name || "Unknown")
-      })),
-      screens,
-      currentScreenId,
-      onNavigateToScreen: (screenId: string) => {
-        handleNavigateToScreen(screenId);
-        const screen = screens.find(s => s.id === screenId);
-        if (screen) {
-          applyScreenState(screen);
-        }
-        toast.success(`✅ 已跳转到: ${screens.find(s => s.id === screenId)?.name}`);
-      },
-      onOpenFlowDiagram: () => {
-        setCircularDialogOpen(false);
-        setFlowDiagramOpen(true);
-      },
-    },
-    templateLibrary: {
-      open: templateLibraryOpen,
-      setOpen: setTemplateLibraryOpen,
-      onApply: handleApplyTemplate,
-    },
-    onboarding: {
-      visible: onboardingVisible,
-      progress: onboardingProgress,
-      onDismiss: dismissOnboarding,
-      onOpenTemplate: () => setTemplateLibraryOpen(true),
-      onTogglePreview: togglePreviewMode,
-      onShare: handleCopyJSON,
+    onCreateAndOpen: () => {
+      createNewScreen();
+      toast.info("🆕 已创建新模版，请先保存以便可被链接");
     },
   }), [
     applyScreenState,
     buttonEditDialogOpen,
-    circularDialogOpen,
     createNewScreen,
+    editingButtonData,
+    handleButtonUpdate,
+    handleNavigateToScreen,
+    screens,
+    screenById,
+    setButtonEditDialogOpen,
+    setEditingButtonData,
+  ]);
+
+  const importDialogState = useMemo(() => ({
+    open: importDialogOpen,
+    setOpen: setImportDialogOpen,
+    importJSON,
+    setImportJSON,
+    isImporting,
+    onImport: handleImportJSON,
+    fileInputRef,
+    onFileSelect: handleImportFileSelect,
+  }), [fileInputRef, handleImportFileSelect, handleImportJSON, importDialogOpen, importJSON, isImporting, setImportDialogOpen, setImportJSON]);
+
+  const renameDialogState = useMemo(() => ({
+    open: renameDialogOpen,
+    setOpen: setRenameDialogOpen,
+    value: renameValue,
+    setValue: setRenameValue,
+    onSave: handleRenameScreen,
+  }), [handleRenameScreen, renameDialogOpen, renameValue, setRenameDialogOpen, setRenameValue]);
+
+  const flowDiagramDialog = useMemo(() => ({
+    open: flowDiagramOpen,
+    setOpen: setFlowDiagramOpen,
+    screens,
+    currentScreenId,
+    userId: user?.id,
+    entryScreenId,
+    pinnedIds,
+    onLayoutSync: setLayoutSyncStatus,
+    onCreateLink: handleCreateLink,
+    onScreenClick: (screenId: string) => {
+      handleNavigateToScreen(screenId);
+      const screen = screenById.get(screenId);
+      if (screen) {
+        applyScreenState(screen);
+      }
+      toast.success(`✅ 已跳转到: ${screen?.name ?? "Unknown"}`);
+    },
+    onSetEntry: handleSetEntry,
+    onDeleteScreen: deleteScreen,
+  }), [
+    applyScreenState,
     currentScreenId,
     deleteScreen,
-    detectedCircularPaths,
-    editingButtonData,
     entryScreenId,
     flowDiagramOpen,
-    handleButtonUpdate,
-    handleCopyJSON,
     handleCreateLink,
-    handleApplyTemplate,
-    handleImportJSON,
-    handleImportFileSelect,
     handleNavigateToScreen,
-    handleRenameScreen,
     handleSetEntry,
-    importDialogOpen,
-    importJSON,
-    isImporting,
-    renameDialogOpen,
-    renameValue,
     pinnedIds,
+    screenById,
     screens,
     setLayoutSyncStatus,
-    templateLibraryOpen,
-    onboardingProgress,
-    onboardingVisible,
-    dismissOnboarding,
-    togglePreviewMode,
-    setTemplateLibraryOpen,
-    user,
+    setFlowDiagramOpen,
+    user?.id,
+  ]);
+
+  const circularPathsMemo = useMemo(
+    () => detectedCircularPaths.map((path) => ({
+      path,
+      screenNames: path.map((id) => screenById.get(id)?.name || "Unknown"),
+    })),
+    [detectedCircularPaths, screenById],
+  );
+
+  const circularDialogState = useMemo(() => ({
+    open: circularDialogOpen,
+    setOpen: setCircularDialogOpen,
+    circularPaths: circularPathsMemo,
+    screens,
+    currentScreenId,
+    onNavigateToScreen: (screenId: string) => {
+      handleNavigateToScreen(screenId);
+      const screen = screenById.get(screenId);
+      if (screen) {
+        applyScreenState(screen);
+      }
+      toast.success(`✅ 已跳转到: ${screen?.name ?? "Unknown"}`);
+    },
+    onOpenFlowDiagram: () => {
+      setCircularDialogOpen(false);
+      setFlowDiagramOpen(true);
+    },
+  }), [
+    applyScreenState,
+    circularDialogOpen,
+    circularPathsMemo,
+    currentScreenId,
+    handleNavigateToScreen,
+    screenById,
+    screens,
+    setCircularDialogOpen,
+    setFlowDiagramOpen,
+  ]);
+
+  const templateLibraryState = useMemo(() => ({
+    open: templateLibraryOpen,
+    setOpen: setTemplateLibraryOpen,
+    onApply: handleApplyTemplate,
+  }), [handleApplyTemplate, setTemplateLibraryOpen, templateLibraryOpen]);
+
+  const onboardingState = useMemo(() => ({
+    visible: onboardingVisible,
+    progress: onboardingProgress,
+    onDismiss: dismissOnboarding,
+    onOpenTemplate: () => setTemplateLibraryOpen(true),
+    onTogglePreview: togglePreviewMode,
+    onShare: handleCopyJSON,
+  }), [dismissOnboarding, handleCopyJSON, onboardingProgress, onboardingVisible, setTemplateLibraryOpen, togglePreviewMode]);
+
+  const dialogState = useMemo(() => ({
+    buttonEditor: buttonEditorDialog,
+    importDialog: importDialogState,
+    renameDialog: renameDialogState,
+    flowDiagram: flowDiagramDialog,
+    circularDialog: circularDialogState,
+    templateLibrary: templateLibraryState,
+    onboarding: onboardingState,
+  }), [
+    buttonEditorDialog,
+    circularDialogState,
+    flowDiagramDialog,
+    importDialogState,
+    onboardingState,
+    renameDialogState,
+    templateLibraryState,
   ]);
 
   return {
