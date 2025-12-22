@@ -6,6 +6,8 @@ interface AutoSaveOptions<TData> {
   onSave: () => void | Promise<void>; // 保存回调函数
   data: TData; // 需要监听变化的数据
   storageKey?: string; // localStorage 存储键名
+  beaconUrl?: string; // sendBeacon 发送地址
+  beaconPayload?: (data: TData) => BodyInit; // sendBeacon 自定义数据
 }
 
 /**
@@ -20,17 +22,29 @@ export const useAutoSave = <TData,>({
   onSave,
   data,
   storageKey = 'autosave_draft',
+  beaconUrl,
+  beaconPayload,
 }: AutoSaveOptions<TData>) => {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedRef = useRef<string>('');
   const isInitialMount = useRef(true);
+  const latestDataRef = useRef<TData>(data);
+  const onSaveRef = useRef(onSave);
+
+  useEffect(() => {
+    latestDataRef.current = data;
+  }, [data]);
+
+  useEffect(() => {
+    onSaveRef.current = onSave;
+  }, [onSave]);
 
   // 保存到 localStorage
   const saveToLocalStorage = useCallback(() => {
     if (!storageKey) return;
     
     try {
-      const dataString = JSON.stringify(data);
+      const dataString = JSON.stringify(latestDataRef.current);
       // 只有当数据真正改变时才保存
       if (dataString !== lastSavedRef.current) {
         localStorage.setItem(storageKey, dataString);
@@ -40,7 +54,24 @@ export const useAutoSave = <TData,>({
     } catch (error) {
       console.error('[AutoSave] 保存到 localStorage 失败:', error);
     }
-  }, [data, storageKey]);
+  }, [storageKey]);
+
+  // 使用 sendBeacon 作为卸载备选
+  const sendBeaconSnapshot = useCallback(() => {
+    if (!beaconUrl || typeof navigator === 'undefined' || !navigator.sendBeacon) {
+      return false;
+    }
+
+    try {
+      const payload =
+        beaconPayload?.(latestDataRef.current) ??
+        new Blob([JSON.stringify(latestDataRef.current)], { type: 'application/json' });
+      return navigator.sendBeacon(beaconUrl, payload);
+    } catch (error) {
+      console.error('[AutoSave] sendBeacon 失败:', error);
+      return false;
+    }
+  }, [beaconPayload, beaconUrl]);
 
   // 清除 localStorage
   const clearLocalStorage = useCallback(() => {
@@ -101,7 +132,7 @@ export const useAutoSave = <TData,>({
     // 设置新的定时器
     timerRef.current = setTimeout(() => {
       saveToLocalStorage();
-      onSave();
+      void onSaveRef.current();
     }, interval);
 
     return () => {
@@ -109,17 +140,18 @@ export const useAutoSave = <TData,>({
         clearTimeout(timerRef.current);
       }
     };
-  }, [data, enabled, interval, onSave, saveToLocalStorage]);
+  }, [data, enabled, interval, saveToLocalStorage]);
 
   // 页面卸载前保存
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       // Check dirty state BEFORE saving
-      const currentData = JSON.stringify(data);
+      const currentData = JSON.stringify(latestDataRef.current);
       const isDirty = currentData !== lastSavedRef.current;
 
-      // Attempt to save
+      // Attempt to save synchronously
       saveToLocalStorage();
+      sendBeaconSnapshot();
 
       // Warn if there were unsaved changes
       if (isDirty) {
@@ -134,7 +166,30 @@ export const useAutoSave = <TData,>({
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [data, saveToLocalStorage]);
+  }, [saveToLocalStorage, sendBeaconSnapshot]);
+
+  // 页面隐藏时提前保存（避免 beforeunload 丢失）
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'hidden') return;
+      saveToLocalStorage();
+      void onSaveRef.current();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [saveToLocalStorage]);
+
+  // 组件卸载时保存
+  useEffect(() => {
+    return () => {
+      saveToLocalStorage();
+      void onSaveRef.current();
+    };
+  }, [saveToLocalStorage]);
 
   return {
     saveToLocalStorage,

@@ -94,14 +94,20 @@ export const useUndoRedo = <T>(
 
       const next = currentHistory.future[0];
       const newFuture = currentHistory.future.slice(1);
+      const newPast = [...currentHistory.past, currentHistory.present];
+
+      // 限制历史记录大小（与 setState 保持一致）
+      if (newPast.length > maxHistorySize) {
+        newPast.shift();
+      }
 
       return {
-        past: [...currentHistory.past, currentHistory.present],
+        past: newPast,
         present: next,
         future: newFuture,
       };
     });
-  }, []);
+  }, [maxHistorySize]);
 
   // 重置历史
   const reset = useCallback((newState: T) => {
