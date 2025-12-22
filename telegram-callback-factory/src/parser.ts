@@ -1,4 +1,5 @@
 import type { ParsedCallback, ParserOptions, MiddlewareContext } from './types';
+import { base64UrlDecode } from "./base64";
 
 /**
  * 回调数据解析器
@@ -90,8 +91,6 @@ export class CallbackParser {
    * Base64URL 解码
    */
   private base64urlDecode(str: string): string {
-    const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-    const padding = '='.repeat((4 - (base64.length % 4)) % 4);
-    return Buffer.from(base64 + padding, 'base64').toString('utf-8');
+    return base64UrlDecode(str);
   }
 }

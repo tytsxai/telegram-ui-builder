@@ -1,4 +1,5 @@
 import type { CallbackData, FactoryOptions, MakeOptions } from './types';
+import { base64UrlEncode } from "./base64";
 
 /**
  * 回调数据工厂
@@ -142,11 +143,7 @@ export class CallbackFactory {
    * Base64URL 编码
    */
   private base64urlEncode(str: string): string {
-    return Buffer.from(str)
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
+    return base64UrlEncode(str);
   }
 
   /**

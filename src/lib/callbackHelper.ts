@@ -21,61 +21,6 @@ const getUtf8ByteLength = (value: string) => {
   return value.length;
 };
 
-const base64FromUTF8 = (input: string) => {
-  try {
-    const encoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
-    if (encoder && typeof btoa === "function") {
-      const bytes = encoder.encode(input);
-      let binary = "";
-      bytes.forEach((b) => {
-        binary += String.fromCharCode(b);
-      });
-      return btoa(binary);
-    }
-  } catch (e) {
-    void e;
-  }
-  // Fallback：利用 encodeURIComponent 处理非 ASCII，再交给 btoa
-  try {
-    if (typeof btoa === "function") {
-      return btoa(unescape(encodeURIComponent(input)));
-    }
-  } catch (e) {
-    void e;
-  }
-  // 最后兜底，避免 btoa 直接抛出异常导致崩溃
-  try {
-    if (typeof btoa === "function") {
-      return btoa(input);
-    }
-  } catch (e) {
-    void e;
-  }
-  try {
-    if (typeof btoa === "function") {
-      return btoa(input.replace(/[^\x00-\x7F]/g, "?"));
-    }
-  } catch (e) {
-    void e;
-  }
-  return "";
-};
-
-if (typeof globalThis.Buffer === "undefined") {
-  // Minimal Buffer shim for browser builds (base64 only)
-  // @ts-expect-error Browser polyfill
-  globalThis.Buffer = {
-    from: (input: string) => ({
-      toString: (encoding?: string) => {
-        if (encoding === "base64") {
-          return base64FromUTF8(input);
-        }
-        return input;
-      },
-    }),
-  };
-}
-
 const manager = createCallbackManager({ maxLength: CALLBACK_DATA_MAX_BYTES });
 
 const IDENTIFIER_PATTERN = /^[a-zA-Z0-9_-]+$/;

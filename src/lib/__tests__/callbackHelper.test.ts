@@ -136,69 +136,18 @@ describe("buildCallbackData", () => {
     expect(value.startsWith("btn:ok")).toBe(true);
   });
 
-  it("polyfills Buffer when missing", async () => {
+  it("builds callback data when Buffer is unavailable", async () => {
     const originalBuffer = globalThis.Buffer;
     try {
       vi.resetModules();
       // @ts-expect-error Simulate missing Buffer
       globalThis.Buffer = undefined;
-      await import("../callbackHelper");
-      const encoded = globalThis.Buffer.from("hello").toString("base64");
-      expect(encoded).toBeTypeOf("string");
+      const { buildCallbackData: mockedBuild } = await import("../callbackHelper");
+      const { value, bytes } = mockedBuild({ prefix: "btn", action: "ok", data: { note: "😀" } });
+      expect(value.startsWith("btn:ok")).toBe(true);
+      expect(bytes).toBeLessThanOrEqual(CALLBACK_DATA_MAX_BYTES);
     } finally {
       globalThis.Buffer = originalBuffer;
-    }
-  });
-
-  it("handles TextEncoder failures in base64 encoding", async () => {
-    const originalBuffer = globalThis.Buffer;
-    const originalTextEncoder = globalThis.TextEncoder;
-    try {
-      vi.resetModules();
-      // @ts-expect-error Simulate missing Buffer
-      globalThis.Buffer = undefined;
-      globalThis.TextEncoder = class FakeEncoder {
-        constructor() {
-          throw new Error("fail");
-        }
-      } as unknown as typeof TextEncoder;
-      await import("../callbackHelper");
-      const encoded = globalThis.Buffer.from("hi").toString("base64");
-      expect(encoded).toBeTypeOf("string");
-    } finally {
-      globalThis.Buffer = originalBuffer;
-      globalThis.TextEncoder = originalTextEncoder;
-    }
-  });
-
-  it("uses base64 fallback when TextEncoder is unavailable", async () => {
-    const originalBuffer = globalThis.Buffer;
-    const originalTextEncoder = globalThis.TextEncoder;
-    const originalBtoa = globalThis.btoa;
-    let callCount = 0;
-    try {
-      vi.resetModules();
-      // @ts-expect-error Simulate missing Buffer
-      globalThis.Buffer = undefined;
-      // @ts-expect-error Simulate missing TextEncoder
-      globalThis.TextEncoder = undefined;
-      globalThis.btoa = ((input: string) => {
-        callCount += 1;
-        if (callCount === 1) {
-          throw new Error("fail");
-        }
-        return originalBtoa(input);
-      }) as typeof globalThis.btoa;
-      await import("../callbackHelper");
-      const encoded = globalThis.Buffer.from("ok").toString("base64");
-      const raw = globalThis.Buffer.from("ok").toString("utf-8");
-      expect(encoded).toBeTypeOf("string");
-      expect(raw).toBe("ok");
-      expect(callCount).toBe(2);
-    } finally {
-      globalThis.Buffer = originalBuffer;
-      globalThis.TextEncoder = originalTextEncoder;
-      globalThis.btoa = originalBtoa;
     }
   });
 
