@@ -63,6 +63,12 @@ const clientFor = (token) =>
   });
 
 const normalizeRpcRow = (data) => (Array.isArray(data) ? data[0] : data);
+const assertBlockedMutation = ({ data, error, count }, message) => {
+  if (error) return;
+  // PostgREST returns 200 with 0 rows when RLS blocks; verify no rows were affected.
+  const affected = typeof count === "number" ? count : (data ?? []).length;
+  if (affected !== 0) throw new Error(message);
+};
 
 async function main() {
   let owner = null;
@@ -127,8 +133,12 @@ async function main() {
 
     await check("other users cannot update screens", async () => {
       if (!screenId) throw new Error("missing screen id");
-      const { error } = await viewerClient.from("screens").update({ name: "hijack" }).eq("id", screenId);
-      if (!error) throw new Error("Update should fail under RLS");
+      const result = await viewerClient
+        .from("screens")
+        .update({ name: "hijack" })
+        .eq("id", screenId)
+        .select("id", { count: "exact" });
+      assertBlockedMutation(result, "Update should be blocked under RLS");
     });
 
     await check("other users cannot read pins/layouts", async () => {
@@ -215,11 +225,12 @@ async function main() {
 
     await check("public screens reject sensitive content", async () => {
       if (!screenId) throw new Error("missing screen id");
-      const { error } = await ownerClient
+      const result = await ownerClient
         .from("screens")
         .update({ message_content: "Wallet: TXyne3zFjt2n9zye9oSXiZcmGExYaM1jxv" })
-        .eq("id", screenId);
-      if (!error) throw new Error("Sensitive content should block public screens");
+        .eq("id", screenId)
+        .select("id", { count: "exact" });
+      assertBlockedMutation(result, "Sensitive content should block public screens");
     });
 
     await check("public screens reject sensitive data inside keyboard JSON", async () => {
@@ -232,14 +243,32 @@ async function main() {
           },
         ],
       ];
-      const { error } = await ownerClient.from("screens").update({ keyboard: keyboardWithWallet }).eq("id", screenId);
-      if (!error) throw new Error("Sensitive content should be blocked when present in keyboard JSON");
+      const result = await ownerClient
+        .from("screens")
+        .update({ keyboard: keyboardWithWallet })
+        .eq("id", screenId)
+        .select("id", { count: "exact" });
+      assertBlockedMutation(result, "Sensitive content should be blocked when present in keyboard JSON");
     });
 
     await check("public screens still blocked for update by others", async () => {
       if (!screenId) throw new Error("missing screen id");
-      const { error } = await viewerClient.from("screens").update({ name: "bad" }).eq("id", screenId);
-      if (!error) throw new Error("Update should be blocked even when public");
+      const result = await viewerClient
+        .from("screens")
+        .update({ name: "bad" })
+        .eq("id", screenId)
+        .select("id", { count: "exact" });
+      assertBlockedMutation(result, "Update should be blocked even when public");
+    });
+
+    await check("other users cannot delete screens", async () => {
+      if (!screenId) throw new Error("missing screen id");
+      const result = await viewerClient
+        .from("screens")
+        .delete()
+        .eq("id", screenId)
+        .select("id", { count: "exact" });
+      assertBlockedMutation(result, "Delete should be blocked by RLS for non-owner");
     });
 
     if (results.length > 0) {

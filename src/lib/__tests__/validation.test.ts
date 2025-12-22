@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { getKeyboardValidationErrors, isUrlProtocolAllowed, MAX_BUTTONS_PER_ROW, MAX_KEYBOARD_ROWS, screenContainsSensitiveData, validateKeyboard, validateMessageContent, validateScreen, validateUrlProtocol } from "../validation";
+import { describe, it, expect, vi } from "vitest";
+import { FlowExportSchema, getKeyboardValidationErrors, isUrlProtocolAllowed, MAX_BUTTONS_PER_ROW, MAX_KEYBOARD_ROWS, MessageContentSchema, screenContainsSensitiveData, ScreenSchema, validateButton, validateCallbackData, validateFlowExport, validateKeyboard, validateMessageContent, validateScreen, validateUrlProtocol } from "../validation";
 
 describe("validation", () => {
   it("validates a minimal screen", () => {
@@ -34,6 +34,15 @@ describe("validation", () => {
 
   it("rejects empty message content", () => {
     expect(() => validateMessageContent("")).toThrow(/不能为空/);
+  });
+
+  it("rejects whitespace-only message content", () => {
+    expect(() => validateMessageContent("   ")).toThrow(/不能为空/);
+  });
+
+  it("rejects nullish message content", () => {
+    expect(() => validateMessageContent(null)).toThrow(/不能为空/);
+    expect(() => validateMessageContent(undefined)).toThrow(/不能为空/);
   });
 
   it("reports row and button limits with readable messages", () => {
@@ -175,5 +184,103 @@ describe("validation", () => {
       },
     ];
     expect(() => validateKeyboard(keyboard)).toThrow(/禁止的URL协议/);
+  });
+
+  it("treats trimmed empty URL as allowed", () => {
+    expect(validateUrlProtocol("   ")).toBe("");
+    expect(validateUrlProtocol(null)).toBe("");
+  });
+
+  it("accepts emoji and special characters in content and callback_data", () => {
+    const message = "Hello 😄✨ — ©®✓";
+    expect(() => validateMessageContent(message)).not.toThrow();
+
+    const callback = "ok-😀-✓";
+    expect(() => validateCallbackData(callback)).not.toThrow();
+  });
+
+  it("counts grapheme clusters for emoji and combining characters", () => {
+    const emojiText = "😀".repeat(30);
+    expect(() => validateButton({ id: "btn-emoji-ok", text: emojiText })).not.toThrow();
+    expect(() => validateButton({ id: "btn-emoji-bad", text: emojiText + "😀" })).toThrow(/按钮文本最多30个字符/);
+
+    const combining = "e\u0301".repeat(30);
+    expect(() => validateButton({ id: "btn-combine-ok", text: combining })).not.toThrow();
+    expect(() => validateButton({ id: "btn-combine-bad", text: combining + "e\u0301" })).toThrow(/按钮文本最多30个字符/);
+  });
+
+  it("handles relative and invalid URLs safely", () => {
+    expect(isUrlProtocolAllowed("/relative/path")).toBe(true);
+    expect(isUrlProtocolAllowed("not a url")).toBe(false);
+    expect(() => validateUrlProtocol(123)).toThrow(/无效的URL格式/);
+  });
+
+  it("validates button text trimming and callback_data bounds", () => {
+    const validButton = { id: "btn-1", text: " OK ", url: "https://example.com" };
+    expect(() => validateKeyboard([{ id: "row-1", buttons: [validButton] }])).not.toThrow();
+
+    const badTextButton = { id: "btn-2", text: "   " };
+    expect(() => validateKeyboard([{ id: "row-1", buttons: [badTextButton] }])).toThrow(/按钮文本不能为空/);
+
+    expect(() => validateCallbackData("あ".repeat(33))).toThrow(/64/);
+    expect(validateCallbackData(null)).toBe("");
+    expect(() => validateCallbackData(123)).toThrow(/64/);
+  });
+
+  it("reports screen and flow export validation errors", () => {
+    const badScreen = { id: "s1", name: "   ", message_content: "ok", keyboard: [], is_public: true };
+    expect(() => validateScreen(badScreen)).toThrow(/模版名称不能为空/);
+
+    const badExport = { version: "1", entry_screen_id: "s1", screens: ["bad"] };
+    expect(() => validateFlowExport(badExport)).toThrow(/流程数据验证失败/);
+  });
+
+  it("validates button payloads directly", () => {
+    expect(() => validateButton({ id: "btn-1", text: "Go", callback_data: "ok" })).not.toThrow();
+    expect(() => validateButton({ id: "btn-2", text: "" })).toThrow(/按钮文本不能为空/);
+  });
+
+  it("rethrows unexpected parsing errors", () => {
+    const messageSpy = vi.spyOn(MessageContentSchema, "parse").mockImplementation(() => {
+      throw new Error("boom");
+    });
+    try {
+      expect(() => validateMessageContent("ok")).toThrow(/boom/);
+    } finally {
+      messageSpy.mockRestore();
+    }
+
+    const screenSpy = vi.spyOn(ScreenSchema, "parse").mockImplementation(() => {
+      throw new Error("screen-boom");
+    });
+    try {
+      expect(() => validateScreen({})).toThrow(/screen-boom/);
+    } finally {
+      screenSpy.mockRestore();
+    }
+
+    const flowSpy = vi.spyOn(FlowExportSchema, "parse").mockImplementation(() => {
+      throw new Error("flow-boom");
+    });
+    try {
+      expect(() => validateFlowExport({})).toThrow(/flow-boom/);
+    } finally {
+      flowSpy.mockRestore();
+    }
+  });
+
+  it("handles keyboard validation and sensitive data edge cases", () => {
+    const validKeyboard = [{ id: "row-1", buttons: [{ id: "btn-1", text: "ok" }] }];
+    expect(getKeyboardValidationErrors(validKeyboard)).toEqual([]);
+
+    const rowErrors = getKeyboardValidationErrors([null]);
+    expect(rowErrors[0]).toMatch(/第1行/);
+
+    const buttonErrors = getKeyboardValidationErrors([{ id: "row-1", buttons: [null] }]);
+    expect(buttonErrors[0]).toMatch(/第1行第1个按钮/);
+
+    const circular: { self?: unknown } = {};
+    circular.self = circular;
+    expect(screenContainsSensitiveData("clean", circular)).toBe(false);
   });
 });

@@ -49,10 +49,7 @@ export class SupabaseDataAccess {
   }
 
   async saveScreen(payload: SaveScreenInput) {
-    const targetUserId = payload.user_id ?? this.userId;
-    if (!targetUserId) {
-      throw new Error("saveScreen requires userId");
-    }
+    const targetUserId = assertUserOwnership("saveScreen", payload.user_id ?? this.userId);
     const nextPayload: SaveScreenInput = { ...payload, user_id: targetUserId };
     return this.run("insert", "screens", async () => {
       const { data, error } = await this.client
@@ -60,30 +57,24 @@ export class SupabaseDataAccess {
         .insert([nextPayload])
         .select()
         .single();
-      if (error) throw error;
+      assertNoError(error);
       return data;
     });
   }
 
   async insertScreens(payload: SaveScreenInput[]): Promise<ScreenRow[]> {
-    const targetUserId = this.userId;
-    if (!targetUserId) {
-      throw new Error("insertScreens requires userId");
-    }
+    const targetUserId = assertUserOwnership("insertScreens", this.userId);
     if (payload.length === 0) return [];
     const sanitized = payload.map((screen) => ({ ...screen, user_id: targetUserId }));
     return this.run("insert_many", "screens", async () => {
       const { data, error } = await this.client.from("screens").insert(sanitized).select();
-      if (error) throw error;
+      assertNoError(error);
       return (data ?? []) as ScreenRow[];
     });
   }
 
   async updateScreen(params: UpdateScreenInput) {
-    const targetUserId = params.update.user_id ?? this.userId;
-    if (!targetUserId) {
-      throw new Error("updateScreen requires userId");
-    }
+    const targetUserId = assertUserOwnership("updateScreen", params.update.user_id ?? this.userId);
 
     return this.run("update", "screens", async () => {
       const { data, error } = await this.client
@@ -93,36 +84,32 @@ export class SupabaseDataAccess {
         .eq("user_id", targetUserId)
         .select()
         .single();
-      if (error) throw error;
+      assertNoError(error);
       return data;
     });
   }
 
   async deleteScreens(params: DeleteScreensInput) {
-    const targetUserId = this.userId;
-    if (!targetUserId) {
-      throw new Error("deleteScreens requires userId");
-    }
+    const targetUserId = assertUserOwnership("deleteScreens", this.userId);
     return this.run("delete", "screens", async () => {
       const { error } = await this.client.from("screens").delete().eq("user_id", targetUserId).in("id", params.ids);
-      if (error) throw error;
+      assertNoError(error);
       return params.ids;
     });
   }
 
   async upsertPins(payload: UpsertPinsInput) {
+    const targetUserId = assertUserOwnership("upsertPins", payload.user_id ?? this.userId);
+    const nextPayload: UpsertPinsInput = { ...payload, user_id: targetUserId };
     return this.run("upsert", "user_pins", async () => {
-      const { error } = await this.client.from("user_pins").upsert(payload, { onConflict: "user_id" });
-      if (error) throw error;
-      return payload;
+      const { error } = await this.client.from("user_pins").upsert(nextPayload, { onConflict: "user_id" });
+      assertNoError(error);
+      return nextPayload;
     });
   }
 
   async fetchPins(): Promise<string[]> {
-    const targetUserId = this.userId;
-    if (!targetUserId) {
-      throw new Error("fetchPins requires userId");
-    }
+    const targetUserId = assertUserOwnership("fetchPins", this.userId);
     return this.run("select", "user_pins", async () => {
       const { data, error } = await this.client
         .from("user_pins")
@@ -136,34 +123,32 @@ export class SupabaseDataAccess {
 
   async upsertLayouts(payload: UpsertLayoutsInput) {
     if (payload.length === 0) return [];
+    const targetUserId = assertUserOwnership("upsertLayouts", payload[0]?.user_id ?? this.userId);
+    const normalized = payload.map((layout) => ({ ...layout, user_id: targetUserId }));
     return this.run("upsert", "screen_layouts", async () => {
-      const { error } = await this.client.from("screen_layouts").upsert(payload, { onConflict: "user_id,screen_id" });
-      if (error) throw error;
-      return payload;
+      const { error } = await this.client
+        .from("screen_layouts")
+        .upsert(normalized, { onConflict: "user_id,screen_id" });
+      assertNoError(error);
+      return normalized;
     });
   }
 
   async deleteLayouts(params: { ids?: string[] }) {
-    const targetUserId = this.userId;
-    if (!targetUserId) {
-      throw new Error("deleteLayouts requires userId");
-    }
+    const targetUserId = assertUserOwnership("deleteLayouts", this.userId);
     return this.run("delete", "screen_layouts", async () => {
       const query = this.client.from("screen_layouts").delete().eq("user_id", targetUserId);
       if (params.ids && params.ids.length > 0) {
         query.in("screen_id", params.ids);
       }
       const { error } = await query;
-      if (error) throw error;
+      assertNoError(error);
       return params.ids ?? [];
     });
   }
 
   async fetchLayouts(params: { ids: string[] }): Promise<LayoutRow[]> {
-    const targetUserId = this.userId;
-    if (!targetUserId) {
-      throw new Error("fetchLayouts requires userId");
-    }
+    const targetUserId = assertUserOwnership("fetchLayouts", this.userId);
     if (params.ids.length === 0) return [];
     return this.run("select", "screen_layouts", async () => {
       const { data, error } = await this.client
@@ -171,7 +156,7 @@ export class SupabaseDataAccess {
         .select("screen_id,x,y")
         .eq("user_id", targetUserId)
         .in("screen_id", params.ids);
-      if (error) throw error;
+      assertNoError(error);
       return (data ?? []) as LayoutRow[];
     });
   }
@@ -184,7 +169,7 @@ export class SupabaseDataAccess {
         ? baseQuery.abortSignal(options.signal)
         : baseQuery;
       const { data, error } = await query;
-      if (error) throw error;
+      assertNoError(error);
       const normalized = Array.isArray(data) ? data[0] : data;
       return (normalized as PublicScreenRow) ?? null;
     });
@@ -204,10 +189,7 @@ export class SupabaseDataAccess {
   }
 
   async publishShareToken(params: { screenId: string; token: string }) {
-    const targetUserId = this.userId;
-    if (!targetUserId) {
-      throw new Error("publishShareToken requires userId");
-    }
+    const targetUserId = assertUserOwnership("publishShareToken", this.userId);
 
     return this.run("share_publish", "screens", async () => {
       const { data, error } = await this.client
@@ -217,16 +199,13 @@ export class SupabaseDataAccess {
         .eq("user_id", targetUserId)
         .select()
         .single();
-      if (error) throw error;
+      assertNoError(error);
       return data as ScreenRow;
     });
   }
 
   async rotateShareToken(screenId: string, token: string) {
-    const targetUserId = this.userId;
-    if (!targetUserId) {
-      throw new Error("rotateShareToken requires userId");
-    }
+    const targetUserId = assertUserOwnership("rotateShareToken", this.userId);
 
     return this.run("share_rotate", "screens", async () => {
       const { data, error } = await this.client
@@ -236,16 +215,13 @@ export class SupabaseDataAccess {
         .eq("user_id", targetUserId)
         .select()
         .single();
-      if (error) throw error;
+      assertNoError(error);
       return data as ScreenRow;
     });
   }
 
   async revokeShareToken(screenId: string) {
-    const targetUserId = this.userId;
-    if (!targetUserId) {
-      throw new Error("revokeShareToken requires userId");
-    }
+    const targetUserId = assertUserOwnership("revokeShareToken", this.userId);
 
     return this.run("share_revoke", "screens", async () => {
       const { data, error } = await this.client
@@ -255,7 +231,7 @@ export class SupabaseDataAccess {
         .eq("user_id", targetUserId)
         .select()
         .single();
-      if (error) throw error;
+      assertNoError(error);
       return data as ScreenRow;
     });
   }
@@ -296,4 +272,17 @@ const safeUUID = () => {
     void e;
   }
   return `req_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+};
+
+const assertUserOwnership = (action: string, userId?: string | null) => {
+  if (typeof userId !== "string" || userId.trim().length === 0) {
+    throw new Error(`${action} requires userId`);
+  }
+  return userId;
+};
+
+const assertNoError = (error: unknown) => {
+  if (error) {
+    throw error;
+  }
 };

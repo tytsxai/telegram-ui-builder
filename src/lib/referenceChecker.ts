@@ -51,17 +51,30 @@ export const detectCircularReferences = (
   startScreenId: string,
   allScreens: Screen[]
 ): { hasCircle: boolean; path: string[] } => {
+  const MAX_DEPTH = 100;
+  const screenMap = new Map(allScreens.map((screen) => [screen.id, screen]));
+
+  if (!screenMap.has(startScreenId)) {
+    return { hasCircle: false, path: [] };
+  }
+
   const visited = new Set<string>();
   const recursionStack = new Set<string>();
   const path: string[] = [];
 
-  const dfs = (screenId: string): boolean => {
+  const dfs = (screenId: string, depth: number): boolean => {
+    if (depth > MAX_DEPTH) return false;
+
     visited.add(screenId);
     recursionStack.add(screenId);
     path.push(screenId);
 
-    const screen = allScreens.find((s) => s.id === screenId);
-    if (!screen) return false;
+    const screen = screenMap.get(screenId);
+    if (!screen) {
+      recursionStack.delete(screenId);
+      path.pop();
+      return false;
+    }
 
     const keyboard = screen.keyboard ?? [];
     for (const row of keyboard) {
@@ -78,7 +91,7 @@ export const detectCircularReferences = (
 
         // 如果目标未访问过，继续深度优先搜索
         if (!visited.has(targetId)) {
-          if (dfs(targetId)) {
+          if (dfs(targetId, depth + 1)) {
             return true;
           }
         }
@@ -90,7 +103,7 @@ export const detectCircularReferences = (
     return false;
   };
 
-  const hasCircle = dfs(startScreenId);
+  const hasCircle = dfs(startScreenId, 0);
 
   return { hasCircle, path };
 };
@@ -102,24 +115,21 @@ export const findAllCircularReferences = (
   allScreens: Screen[]
 ): Array<{ path: string[]; screenNames: string[] }> => {
   const circles: Array<{ path: string[]; screenNames: string[] }> = [];
-  const checkedStartNodes = new Set<string>();
 
-  allScreens.forEach((screen) => {
-    if (checkedStartNodes.has(screen.id)) return;
+  const { adjacency, screenMap } = buildGraph(allScreens);
+  const components = findStronglyConnectedComponents(adjacency);
+  const circularComponents = components.filter((component) => {
+    if (component.length > 1) return true;
+    const node = component[0];
+    return adjacency.get(node)?.includes(node) ?? false;
+  });
 
-    const { hasCircle, path } = detectCircularReferences(screen.id, allScreens);
+  circularComponents.forEach((component) => {
+    const path = findCyclePathInComponent(component, adjacency);
+    if (!path) return;
 
-    if (hasCircle) {
-      // 标记路径中的所有节点为已检查
-      path.forEach((id) => checkedStartNodes.add(id));
-
-      const screenNames = path.map((id) => {
-        const s = allScreens.find((x) => x.id === id);
-        return s?.name || id;
-      });
-
-      circles.push({ path, screenNames });
-    }
+    const screenNames = path.map((id) => screenMap.get(id)?.name || id);
+    circles.push({ path, screenNames });
   });
 
   return circles;
@@ -136,8 +146,144 @@ export const circularEdgesFromPaths = (cycles: Array<{ path: string[] }>): Set<s
 };
 
 export const findCircularEdges = (allScreens: Screen[]): Set<string> => {
-  const cycles = findAllCircularReferences(allScreens);
-  return circularEdgesFromPaths(cycles);
+  const edgeIds = new Set<string>();
+  const { adjacency } = buildGraph(allScreens);
+  const components = findStronglyConnectedComponents(adjacency);
+
+  components.forEach((component) => {
+    const componentSet = new Set(component);
+    const isCircular =
+      component.length > 1 ||
+      (component.length === 1 && adjacency.get(component[0])?.includes(component[0]));
+    if (!isCircular) return;
+
+    component.forEach((from) => {
+      (adjacency.get(from) || []).forEach((to) => {
+        if (componentSet.has(to)) {
+          edgeIds.add(`${from}->${to}`);
+        }
+      });
+    });
+  });
+
+  return edgeIds;
+};
+
+const buildGraph = (allScreens: Screen[]) => {
+  const screenMap = new Map(allScreens.map((screen) => [screen.id, screen]));
+  const adjacency = new Map<string, string[]>();
+
+  allScreens.forEach((screen) => {
+    const targets: string[] = [];
+    const keyboard = screen.keyboard ?? [];
+    keyboard.forEach((row) => {
+      row.buttons?.forEach((button) => {
+        if (!button.linked_screen_id) return;
+        if (!screenMap.has(button.linked_screen_id)) return;
+        targets.push(button.linked_screen_id);
+      });
+    });
+    adjacency.set(screen.id, targets);
+  });
+
+  return { adjacency, screenMap };
+};
+
+const findStronglyConnectedComponents = (
+  adjacency: Map<string, string[]>
+): string[][] => {
+  let index = 0;
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const indices = new Map<string, number>();
+  const lowlink = new Map<string, number>();
+  const components: string[][] = [];
+
+  const strongConnect = (node: string) => {
+    indices.set(node, index);
+    lowlink.set(node, index);
+    index += 1;
+    stack.push(node);
+    onStack.add(node);
+
+    (adjacency.get(node) || []).forEach((neighbor) => {
+      if (!indices.has(neighbor)) {
+        strongConnect(neighbor);
+        lowlink.set(
+          node,
+          Math.min(lowlink.get(node)!, lowlink.get(neighbor)!)
+        );
+      } else if (onStack.has(neighbor)) {
+        lowlink.set(
+          node,
+          Math.min(lowlink.get(node)!, indices.get(neighbor)!)
+        );
+      }
+    });
+
+    if (lowlink.get(node) === indices.get(node)) {
+      const component: string[] = [];
+      let current: string | undefined;
+      do {
+        current = stack.pop();
+        if (!current) break;
+        onStack.delete(current);
+        component.push(current);
+      } while (current !== node);
+      components.push(component);
+    }
+  };
+
+  adjacency.forEach((_value, node) => {
+    if (!indices.has(node)) {
+      strongConnect(node);
+    }
+  });
+
+  return components;
+};
+
+const findCyclePathInComponent = (
+  component: string[],
+  adjacency: Map<string, string[]>
+): string[] | null => {
+  const componentSet = new Set(component);
+  const visited = new Set<string>();
+  const inStack = new Set<string>();
+  const path: string[] = [];
+
+  const dfs = (node: string): string[] | null => {
+    visited.add(node);
+    inStack.add(node);
+    path.push(node);
+
+    for (const neighbor of adjacency.get(node) || []) {
+      if (!componentSet.has(neighbor)) continue;
+
+      if (inStack.has(neighbor)) {
+        const cycleStartIndex = path.indexOf(neighbor);
+        return path.slice(cycleStartIndex).concat(neighbor);
+      }
+
+      if (!visited.has(neighbor)) {
+        const result = dfs(neighbor);
+        if (result) return result;
+      }
+    }
+
+    inStack.delete(node);
+    path.pop();
+    return null;
+  };
+
+  for (const node of component) {
+    if (!visited.has(node)) {
+      const result = dfs(node);
+      if (result) return result;
+    }
+  }
+
+  return null;
 };
 
 /**

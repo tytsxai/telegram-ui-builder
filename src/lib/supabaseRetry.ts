@@ -29,6 +29,10 @@ export interface SupabaseErrorLog {
   error: PostgrestError | null | unknown;
 }
 
+export const BASE_DELAY = 1000;
+export const MAX_DELAY = 30000;
+export const MAX_ATTEMPTS = 5;
+
 const wait = (ms: number) => new Promise((res) => setTimeout(res, ms));
 const fallbackRequestId = () => `req_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
@@ -51,16 +55,19 @@ export const classifyRetryableError = (error: unknown): RetryReason | null => {
 };
 
 export const computeBackoffDelay = (base: number, attemptIndex: number, jitterRatio = 0.25) => {
+  const safeBase = Math.max(0, base);
+  const safeJitterRatio = Math.max(0, jitterRatio);
   const factor = Math.max(1, Math.pow(2, attemptIndex));
-  const delay = base * factor;
-  const jitter = delay * jitterRatio * Math.random();
-  return Math.round(delay + jitter);
+  const delay = safeBase * factor;
+  const cappedDelay = Math.min(delay, MAX_DELAY);
+  const jitter = cappedDelay * safeJitterRatio * Math.random();
+  return Math.round(Math.min(cappedDelay + jitter, MAX_DELAY));
 };
 
 export const withRetry = async <T>(op: Op<T>, opts: RetryOptions = {}): Promise<T> => {
-  const attempts = opts.attempts ?? 3;
-  const backoff = opts.backoffMs ?? 350;
-  const jitterRatio = opts.jitterRatio ?? 0.25;
+  const attempts = Math.min(Math.max(opts.attempts ?? 3, 1), MAX_ATTEMPTS);
+  const backoff = Math.max(0, opts.backoffMs ?? BASE_DELAY);
+  const jitterRatio = Math.max(0, opts.jitterRatio ?? 0.25);
 
   let lastError: unknown;
   for (let i = 0; i < attempts; i++) {

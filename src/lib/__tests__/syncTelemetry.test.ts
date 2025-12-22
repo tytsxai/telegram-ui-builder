@@ -3,6 +3,8 @@ import {
   setSyncTelemetryPublisher,
   getSyncTelemetryPublisher,
   publishSyncEvent,
+  sanitizeTelemetryData,
+  DATA_RETENTION_DAYS,
 } from "../syncTelemetry";
 import type { SyncTelemetryEvent } from "../syncTelemetry";
 
@@ -62,7 +64,7 @@ describe("syncTelemetry", () => {
     publishSyncEvent(event);
 
     expect(pub).toHaveBeenCalledTimes(1);
-    expect(pub).toHaveBeenCalledWith(event);
+    expect(pub).toHaveBeenCalledWith(sanitizeTelemetryData(event));
   });
 
   it("publishSyncEvent: is silent when no publisher set", () => {
@@ -86,5 +88,39 @@ describe("syncTelemetry", () => {
     expect(() => publishSyncEvent({ scope: "queue", status: "error" })).not.toThrow();
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy).toHaveBeenCalledWith("[SyncTelemetry] publish failed", thrown);
+  });
+
+  it("sanitizeTelemetryData: filters meta fields and adds retention policy", () => {
+    const event = {
+      scope: "layout",
+      status: "pending",
+      meta: {
+        userId: "user-123",
+        action: "update",
+        targetId: "t-1",
+        email: "pii@example.com",
+      },
+    } as SyncTelemetryEvent;
+
+    const sanitized = sanitizeTelemetryData(event);
+
+    expect(sanitized.meta).toEqual({
+      action: "update",
+      targetId: "t-1",
+    });
+    expect(sanitized.retentionDays).toBe(DATA_RETENTION_DAYS);
+  });
+
+  it("sanitizeTelemetryData: drops empty meta after sanitizing", () => {
+    const event = {
+      scope: "queue",
+      status: "error",
+      meta: { email: "pii@example.com" },
+    } as SyncTelemetryEvent;
+
+    const sanitized = sanitizeTelemetryData(event);
+
+    expect(sanitized.meta).toBeUndefined();
+    expect(sanitized.retentionDays).toBe(DATA_RETENTION_DAYS);
   });
 });

@@ -1,3 +1,6 @@
+import fs from "fs";
+import path from "path";
+
 type StorageKey = string;
 
 const createMemoryStorage = (): Storage => {
@@ -43,4 +46,10 @@ ensureStorage(globalThis, "sessionStorage");
 if (typeof window !== "undefined") {
   ensureStorage(window, "localStorage");
   ensureStorage(window, "sessionStorage");
+}
+
+try {
+  fs.mkdirSync(path.join(process.cwd(), "coverage", ".tmp"), { recursive: true });
+} catch {
+  // Coverage directory is best-effort for local runs.
 }

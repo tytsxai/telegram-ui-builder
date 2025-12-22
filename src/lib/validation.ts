@@ -31,11 +31,43 @@ export const isUrlProtocolAllowed = (rawUrl: string): boolean => {
   }
 };
 
+const trimStringValue = (value: unknown) => (typeof value === "string" ? value.trim() : value);
+const countGraphemes = (value: string) => {
+  if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    let count = 0;
+    for (const _ of segmenter.segment(value)) count += 1;
+    return count;
+  }
+  return [...value].length;
+};
+
+const refineMaxGraphemes =
+  (max: number, message: string) =>
+  (value: string, ctx: z.RefinementCtx) => {
+    if (countGraphemes(value) > max) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.too_big,
+        maximum: max,
+        type: "string",
+        inclusive: true,
+        message,
+      });
+    }
+  };
+
 /**
  * 验证 URL 协议安全性
  */
-export const validateUrlProtocol = (rawUrl: string): string => {
+export const validateUrlProtocol = (rawUrl: unknown): string => {
+  if (rawUrl === null || rawUrl === undefined) {
+    return "";
+  }
+  if (typeof rawUrl !== "string") {
+    throw new Error("无效的URL格式");
+  }
   const value = rawUrl.trim();
+  if (!value) return "";
   if (!isUrlProtocolAllowed(value)) {
     throw new Error("禁止的URL协议");
   }
@@ -79,8 +111,18 @@ const formatKeyboardIssue = (issue: z.ZodIssue) => {
  */
 export const ButtonSchema = z.object({
   id: z.string(),
-  text: z.string().min(1, "按钮文本不能为空").max(BUTTON_TEXT_MAX, "按钮文本最多30个字符"),
-  url: z.string().url("无效的URL格式").refine(isUrlProtocolAllowed, { message: "禁止的URL协议" }).optional().or(z.literal('')),
+  text: z
+    .string()
+    .trim()
+    .min(1, "按钮文本不能为空")
+    .superRefine(refineMaxGraphemes(BUTTON_TEXT_MAX, "按钮文本最多30个字符")),
+  url: z.preprocess(
+    trimStringValue,
+    z.union([
+      z.literal(''),
+      z.string().url("无效的URL格式").refine(isUrlProtocolAllowed, { message: "禁止的URL协议" }),
+    ])
+  ).optional(),
   callback_data: z.string().optional().refine(
     (val) => {
       if (!val) return true;
@@ -108,15 +150,20 @@ export const KeyboardSchema = z.array(KeyboardRowSchema).max(MAX_KEYBOARD_ROWS, 
  * 消息内容验证 Schema
  */
 export const MessageContentSchema = z.string()
+  .trim()
   .min(1, "消息内容不能为空")
-  .max(4096, "消息内容最多4096个字符");
+  .superRefine(refineMaxGraphemes(4096, "消息内容最多4096个字符"));
 
 /**
  * 模版验证 Schema
  */
 export const ScreenSchema = z.object({
   id: z.string(),
-  name: z.string().min(1, "模版名称不能为空").max(100, "模版名称最多100个字符"),
+  name: z
+    .string()
+    .trim()
+    .min(1, "模版名称不能为空")
+    .superRefine(refineMaxGraphemes(100, "模版名称最多100个字符")),
   message_content: MessageContentSchema,
   keyboard: KeyboardSchema,
   share_token: z.string().optional(),
@@ -144,7 +191,13 @@ export const validateButton = (button: unknown) => {
   return result.data;
 };
 
-export const validateCallbackData = (value: string) => {
+export const validateCallbackData = (value: unknown) => {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value !== "string") {
+    throw new Error(CALLBACK_DATA_ERROR_MESSAGE);
+  }
   const bytes = getByteLength(value);
   if (bytes > CALLBACK_DATA_MAX_BYTES) {
     throw new Error(CALLBACK_DATA_ERROR_MESSAGE);
@@ -168,6 +221,9 @@ export const validateKeyboard = (keyboard: unknown) => {
  * 验证消息内容
  */
 export const validateMessageContent = (content: unknown) => {
+  if (content === null || content === undefined) {
+    throw new Error("消息内容验证失败: 消息内容不能为空");
+  }
   try {
     return MessageContentSchema.parse(content);
   } catch (error) {

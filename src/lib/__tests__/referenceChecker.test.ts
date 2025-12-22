@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { performance } from "node:perf_hooks";
 import { circularEdgesFromPaths, detectCircularReferences, findAllCircularReferences, findCircularEdges, findScreenReferences } from "../referenceChecker";
 import type { Screen } from "@/types/telegram";
 
@@ -66,5 +67,35 @@ describe("referenceChecker", () => {
     expect(edges.has("b->c")).toBe(true);
     expect(edges.has("c->a")).toBe(true);
     expect(edges.has("d->a")).toBe(false);
+  });
+
+  it("detects cycles that share nodes", () => {
+    const sharedScreens: Screen[] = [
+      makeScreen("a", ["b", "c"]),
+      makeScreen("b", ["c"]),
+      makeScreen("c", ["a"]),
+    ];
+
+    const edges = findCircularEdges(sharedScreens);
+    expect(edges.has("a->b")).toBe(true);
+    expect(edges.has("b->c")).toBe(true);
+    expect(edges.has("c->a")).toBe(true);
+    expect(edges.has("a->c")).toBe(true);
+  });
+
+  it("handles deep graphs within the performance guard", () => {
+    const chainLength = 1000;
+    const deepScreens: Screen[] = Array.from({ length: chainLength }, (_, idx) => {
+      const id = `n${idx}`;
+      const next = idx + 1 < chainLength ? [`n${idx + 1}`] : [];
+      return makeScreen(id, next);
+    });
+
+    const start = performance.now();
+    const result = detectCircularReferences("n0", deepScreens);
+    const durationMs = performance.now() - start;
+
+    expect(result.hasCircle).toBe(false);
+    expect(durationMs).toBeLessThan(300);
   });
 });
