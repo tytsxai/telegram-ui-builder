@@ -6,6 +6,19 @@ import RuntimeConfigError from "@/components/RuntimeConfigError";
 import { getRuntimeConfigReport, logRuntimeConfigIssues } from "@/lib/runtimeConfig";
 import { initErrorReporting } from "@/lib/errorReportingClient";
 
+const normalizeGlobalBuffer = () => {
+  const buffer = globalThis.Buffer as unknown;
+  if (typeof buffer === "undefined") return;
+  if (typeof buffer === "function") return;
+  if (typeof buffer === "object" && buffer && typeof (buffer as { from?: unknown }).from === "function") {
+    try {
+      delete (globalThis as { Buffer?: unknown }).Buffer;
+    } catch {
+      (globalThis as { Buffer?: unknown }).Buffer = undefined;
+    }
+  }
+};
+
 if (!getSyncTelemetryPublisher()) {
   setSyncTelemetryPublisher((event) => {
     if (import.meta.env.DEV) {
@@ -23,6 +36,7 @@ if (!getSyncTelemetryPublisher()) {
   });
 }
 
+normalizeGlobalBuffer();
 initErrorReporting();
 
 const runtimeReport = getRuntimeConfigReport();
