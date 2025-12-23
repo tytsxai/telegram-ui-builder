@@ -23,6 +23,7 @@ export const BuilderDialogs = () => {
     templateLibrary,
     onboarding,
   } = useBuilderDialogs();
+  const shouldLoadDiagrams = flowDiagram.open || circularDialog.open;
 
   return (
     <>
@@ -119,36 +120,44 @@ export const BuilderDialogs = () => {
         </DialogContent>
       </Dialog>
 
-      <Suspense fallback={
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        </div>
-      }>
-        <TemplateFlowDiagram
-          screens={flowDiagram.screens}
-          currentScreenId={flowDiagram.currentScreenId}
-          open={flowDiagram.open}
-          onOpenChange={flowDiagram.setOpen}
-          userId={flowDiagram.userId}
-          entryScreenId={flowDiagram.entryScreenId}
-          pinnedIds={flowDiagram.pinnedIds}
-          onLayoutSync={flowDiagram.onLayoutSync}
-          onCreateLink={flowDiagram.onCreateLink}
-          onScreenClick={flowDiagram.onScreenClick}
-          onSetEntry={flowDiagram.onSetEntry}
-          onDeleteScreen={flowDiagram.onDeleteScreen}
-        />
+      {shouldLoadDiagrams && (
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          }
+        >
+          {flowDiagram.open && (
+            <TemplateFlowDiagram
+              screens={flowDiagram.screens}
+              currentScreenId={flowDiagram.currentScreenId}
+              open={flowDiagram.open}
+              onOpenChange={flowDiagram.setOpen}
+              userId={flowDiagram.userId}
+              entryScreenId={flowDiagram.entryScreenId}
+              pinnedIds={flowDiagram.pinnedIds}
+              onLayoutSync={flowDiagram.onLayoutSync}
+              onCreateLink={flowDiagram.onCreateLink}
+              onScreenClick={flowDiagram.onScreenClick}
+              onSetEntry={flowDiagram.onSetEntry}
+              onDeleteScreen={flowDiagram.onDeleteScreen}
+            />
+          )}
 
-        <CircularReferenceDialog
-          open={circularDialog.open}
-          onOpenChange={circularDialog.setOpen}
-          circularPaths={circularDialog.circularPaths}
-          screens={circularDialog.screens}
-          currentScreenId={circularDialog.currentScreenId}
-          onNavigateToScreen={circularDialog.onNavigateToScreen}
-          onOpenFlowDiagram={circularDialog.onOpenFlowDiagram}
-        />
-      </Suspense>
+          {circularDialog.open && (
+            <CircularReferenceDialog
+              open={circularDialog.open}
+              onOpenChange={circularDialog.setOpen}
+              circularPaths={circularDialog.circularPaths}
+              screens={circularDialog.screens}
+              currentScreenId={circularDialog.currentScreenId}
+              onNavigateToScreen={circularDialog.onNavigateToScreen}
+              onOpenFlowDiagram={circularDialog.onOpenFlowDiagram}
+            />
+          )}
+        </Suspense>
+      )}
 
       <TemplateSelector open={templateLibrary.open} onOpenChange={templateLibrary.setOpen} onApply={templateLibrary.onApply} />
 
