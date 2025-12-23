@@ -21,6 +21,7 @@ import { Slider } from '@/components/ui/slider';
 import { AlertCircle, Home, RotateCw, ListChecks, ArrowLeftRight, ArrowUpDown, Maximize2, Minimize2, Network, Edit, Trash2, PlayCircle, Star, Filter, Crosshair, RefreshCcw } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { findAllCircularReferences, findCircularEdges, generateRelationshipGraph } from '@/lib/referenceChecker';
+import { toast } from 'sonner';
 import dagre from '@dagrejs/dagre';
 import { SupabaseDataAccess } from '@/lib/dataAccess';
 import { supabase } from '@/integrations/supabase/client';
@@ -147,6 +148,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   const [layoutSaving, setLayoutSaving] = useState(false);
   const lastSavedSignatureRef = useRef<string>('');
   const autoSaveTimerRef = useRef<number | null>(null);
+  const layoutWarningRef = useRef(false);
   const supabaseEnabled = useMemo(() => hasSupabaseEnv(), []);
 
   useEffect(() => {
@@ -156,6 +158,12 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!open) {
+      layoutWarningRef.current = false;
+    }
+  }, [open]);
 
   // 同步入口/置顶信息（优先使用外部传入，其次使用本地/云端）
   useEffect(() => {
@@ -928,6 +936,10 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
       });
     } catch (error) {
       console.error('[FlowDiagram] Dagre layout failed', error);
+      if (!layoutWarningRef.current) {
+        toast.warning("关系图布局失败，使用简化网格布局");
+        layoutWarningRef.current = true;
+      }
       // Fallback to simple grid if dagre fails
       const xGap = Math.round(260 * nodeScale);
       const yGap = Math.round(160 * nodeScale);

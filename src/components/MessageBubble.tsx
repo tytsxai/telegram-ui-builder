@@ -95,7 +95,10 @@ const MessageBubble = forwardRef<MessageBubbleHandle, MessageBubbleProps>(({ con
     const container = document.createElement('div');
     container.innerHTML = sanitizedHtml;
 
-    const walk = (node: Node): string => {
+    const walk = (node: Node, depth = 0): string => {
+      const MAX_DEPTH = 50;
+      if (depth > MAX_DEPTH) return '';
+
       if (node.nodeType === Node.TEXT_NODE) {
         return (node.textContent ?? '');
       }
@@ -104,36 +107,48 @@ const MessageBubble = forwardRef<MessageBubbleHandle, MessageBubbleProps>(({ con
         if (el.tagName === 'BR') return '\n';
         if (el.tagName === 'CODE') {
           let inner = '';
-          el.childNodes.forEach((n) => (inner += walk(n)));
-          return '`' + inner + '`';
+          for (let i = 0; i < el.childNodes.length; i++) {
+            inner += walk(el.childNodes[i], depth + 1);
+          }
+          return `\`${inner}\``;
         }
         if (el.tagName === 'STRONG' || el.tagName === 'B') {
           let inner = '';
-          el.childNodes.forEach((n) => (inner += walk(n)));
+          for (let i = 0; i < el.childNodes.length; i++) {
+            inner += walk(el.childNodes[i], depth + 1);
+          }
           return `**${inner}**`;
         }
         if (el.tagName === 'EM' || el.tagName === 'I') {
           let inner = '';
-          el.childNodes.forEach((n) => (inner += walk(n)));
+          for (let i = 0; i < el.childNodes.length; i++) {
+            inner += walk(el.childNodes[i], depth + 1);
+          }
           return `_${inner}_`;
         }
         if (el.tagName === 'A') {
           const href = el.getAttribute('href') || '';
           let inner = '';
-          el.childNodes.forEach((n) => (inner += walk(n)));
+          for (let i = 0; i < el.childNodes.length; i++) {
+            inner += walk(el.childNodes[i], depth + 1);
+          }
           if (!href) return inner;
           return `[${inner}](${href})`;
         }
-        // Default: serialize children
+        // Default: serialize children (span and other tags)
         let out = '';
-        el.childNodes.forEach((n) => (out += walk(n)));
+        for (let i = 0; i < el.childNodes.length; i++) {
+          out += walk(el.childNodes[i], depth + 1);
+        }
         return out;
       }
       return '';
     };
 
     let result = '';
-    container.childNodes.forEach((n) => (result += walk(n)));
+    for (let i = 0; i < container.childNodes.length; i++) {
+      result += walk(container.childNodes[i]);
+    }
     return result;
   }, []);
 

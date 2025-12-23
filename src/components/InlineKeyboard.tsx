@@ -49,6 +49,7 @@ const InlineKeyboard = React.memo(({
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedButton, setSelectedButton] = useState<{ row: KeyboardRow; button: KeyboardButton } | null>(null);
   const overflowWarning = React.useRef({ rows: false, buttons: false });
+  const truncationWarningRef = React.useRef(new Set<string>());
 
   const focusButton = (rowId: string, buttonId: string) => {
     requestAnimationFrame(() => {
@@ -143,6 +144,17 @@ const InlineKeyboard = React.memo(({
   const handleTextChange = (rowId: string, buttonId: string, newText: string) => {
     // Limit text length to prevent overflow
     const truncatedText = newText.slice(0, 30);
+    if (!readOnly) {
+      const key = `${rowId}:${buttonId}`;
+      if (truncatedText.length < newText.length) {
+        if (!truncationWarningRef.current.has(key)) {
+          toast.warning("按钮文字已截断至 30 字符，以符合 Telegram 限制");
+          truncationWarningRef.current.add(key);
+        }
+      } else {
+        truncationWarningRef.current.delete(key);
+      }
+    }
     if (!onButtonTextChange) return;
     onButtonTextChange(rowId, buttonId, truncatedText);
   };

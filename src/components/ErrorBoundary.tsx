@@ -60,7 +60,9 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   private static shouldReportError(error: Error): boolean {
-    const key = `${error.name}|${error.message}|${error.stack ?? ''}`;
+    const stack = error.stack ?? '';
+    const stackLines = stack.split('\n').slice(0, 3).join('|');
+    const key = `${error.name}:${error.message}:${stackLines}`;
     if (ErrorBoundary.reportedErrorKeys.has(key)) {
       return false;
     }

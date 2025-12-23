@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import type { TemplateDefinition, TemplateMeta, TemplatePayload } from "@/types/templates";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,9 +26,15 @@ export const TemplateSelector = ({ open, onOpenChange, onApply }: TemplateSelect
   const [library, setLibrary] = useState<TemplateMeta[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
   useEffect(() => {
-    if (!open || library.length > 0) return;
+    if (!open) {
+      hasLoadedRef.current = false;
+      return;
+    }
+    if (hasLoadedRef.current) return;
+
     const load = async () => {
       try {
         setError(null);
@@ -36,15 +42,17 @@ export const TemplateSelector = ({ open, onOpenChange, onApply }: TemplateSelect
         if (!res.ok) throw new Error("无法加载模板列表");
         const data = (await res.json()) as TemplateMeta[];
         setLibrary(data);
+        hasLoadedRef.current = true;
       } catch (e) {
         setError(e instanceof Error ? e.message : "模板列表加载失败");
       }
     };
     void load();
-  }, [open, library.length]);
+  }, [open]);
 
   const handleReload = async () => {
     setLibrary([]);
+    hasLoadedRef.current = false;
     setError(null);
     if (open) {
       try {
