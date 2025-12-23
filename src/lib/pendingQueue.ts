@@ -1,6 +1,7 @@
 import type { TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
 import { computeBackoffDelay } from "./supabaseRetry";
 import { publishSyncEvent } from "./syncTelemetry";
+import { toast } from "sonner";
 
 /**
  * Offline write queue persisted in `localStorage`.
@@ -11,7 +12,7 @@ import { publishSyncEvent } from "./syncTelemetry";
  * - `update` operations are de-duped by screen id to ensure replay applies the latest state.
  * - Version bumps must include a migration path and tests (see `reviveLegacy` and `src/lib/__tests__/pendingQueue.test.ts`).
  *
- * This module is intentionally UI-agnostic: enqueue/replay orchestration is handled by higher-level hooks.
+ * This module is intentionally UI-light; queue trim warnings surface here to avoid silent data loss.
  */
 export type SavePayload = TablesInsert<"screens">;
 export type UpdatePayload = { id: string; update: TablesUpdate<"screens"> };
@@ -59,9 +60,7 @@ const withLock = async <T>(fn: () => T | Promise<T>): Promise<T> => {
 };
 const genId = () => {
   try {
-    // @ts-expect-error crypto may not exist in all environments
-    if (typeof crypto !== "undefined" && crypto.randomUUID) {
-      // @ts-expect-error crypto.randomUUID exists in browsers/jsdom
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
       return crypto.randomUUID();
     }
   } catch (e) {
@@ -111,6 +110,9 @@ const trimQueue = (items: PendingItem[]) => {
 const notifyQueueTrim = (dropped: number) => {
   if (dropped <= 0) return;
   console.warn(`[PendingQueue] Dropped ${dropped} item(s) to stay within ${MAX_QUEUE_SIZE} entries.`);
+  if (typeof window !== "undefined") {
+    toast.warning(`离线队列已超出限制，已丢弃 ${dropped} 条旧数据`);
+  }
   publishSyncEvent({
     scope: "queue",
     status: {

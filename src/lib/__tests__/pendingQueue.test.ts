@@ -327,6 +327,42 @@ describe("pendingQueue", () => {
     expect(localStorage.getItem("pending_ops_v2_anon")).toBeTruthy();
   });
 
+  it("fills missing legacy save fields with defaults", () => {
+    localStorage.setItem(
+      "pending_ops_anon",
+      JSON.stringify([{ kind: "save", payload: { keyboard: [] } }]),
+    );
+
+    const migrated = readPendingOps(null);
+    expect(migrated).toHaveLength(1);
+    expect(migrated[0].kind).toBe("save");
+    expect(migrated[0].payload.name).toBe("Untitled");
+    expect(migrated[0].payload.message_content).toBe("");
+  });
+
+  it("fills missing legacy update fields with defaults", () => {
+    localStorage.setItem(
+      "pending_ops_anon",
+      JSON.stringify([{ kind: "update", payload: { keyboard: [] } }]),
+    );
+
+    const migrated = readPendingOps(null);
+    expect(migrated).toHaveLength(1);
+    expect(migrated[0].kind).toBe("update");
+    expect(migrated[0].payload.id).toBe("");
+    expect(migrated[0].payload.update.message_content).toBe("");
+  });
+
+  it("skips legacy entries missing kind and payload", () => {
+    localStorage.setItem(
+      "pending_ops_anon",
+      JSON.stringify([{ bad: true }]),
+    );
+
+    const migrated = readPendingOps(null);
+    expect(migrated).toEqual([]);
+  });
+
   it("skips legacy payloads that do not produce valid items", () => {
     localStorage.setItem(
       "pending_ops_anon",
@@ -355,6 +391,42 @@ describe("pendingQueue", () => {
     const [item] = readPendingOps();
     expect(item.failures?.[0].message).toBe("boom");
     expect(item.failures?.[0].at).toBe(1234);
+  });
+
+  it("falls back when failures are non-array values", () => {
+    const badFailures = [
+      {
+        id: "oops",
+        kind: "save",
+        payload: { user_id: "u1", name: "bad", message_content: "c", keyboard: [] },
+        attempts: 1,
+        createdAt: 1,
+        lastError: "boom",
+        lastAttemptAt: 1234,
+        failures: { message: "nope" },
+      },
+    ];
+    localStorage.setItem("pending_ops_v2_anon", JSON.stringify(badFailures));
+    const [item] = readPendingOps();
+    expect(item.failures?.[0]).toMatchObject({ message: "boom", at: 1234 });
+  });
+
+  it("falls back when failure entries are non-objects", () => {
+    const badFailures = [
+      {
+        id: "oops",
+        kind: "save",
+        payload: { user_id: "u1", name: "bad", message_content: "c", keyboard: [] },
+        attempts: 1,
+        createdAt: 1,
+        lastError: "boom",
+        lastAttemptAt: 1234,
+        failures: [null, "bad"],
+      },
+    ];
+    localStorage.setItem("pending_ops_v2_anon", JSON.stringify(badFailures));
+    const [item] = readPendingOps();
+    expect(item.failures?.[0]).toMatchObject({ message: "boom", at: 1234 });
   });
 
   it("preserves valid failure logs when reading stored queues", () => {

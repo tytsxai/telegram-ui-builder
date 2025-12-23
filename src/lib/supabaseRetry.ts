@@ -40,7 +40,16 @@ const isNetworkError = (error: unknown) => {
   if (!error) return false;
   if (error instanceof TypeError) return true;
   const message = (error as Error)?.message ?? "";
-  return message.includes("Failed to fetch") || message.includes("NetworkError") || message.includes("ECONN");
+  const lowerMessage = message.toLowerCase();
+  return (
+    message.includes("Failed to fetch") ||
+    message.includes("NetworkError") ||
+    message.includes("ECONN") ||
+    lowerMessage.includes("network") ||
+    lowerMessage.includes("fetch") ||
+    lowerMessage.includes("connection") ||
+    lowerMessage.includes("timeout")
+  );
 };
 
 export const classifyRetryableError = (error: unknown): RetryReason | null => {

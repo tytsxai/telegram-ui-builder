@@ -26,8 +26,7 @@ export const useAutoSave = <TData,>({
   beaconPayload,
 }: AutoSaveOptions<TData>) => {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const lastSavedRef = useRef<string>('');
-  const isInitialMount = useRef(true);
+  const lastSavedRef = useRef<string>("");
   const latestDataRef = useRef<TData>(data);
   const onSaveRef = useRef(onSave);
 
@@ -40,17 +39,17 @@ export const useAutoSave = <TData,>({
   }, [onSave]);
 
   // 保存到 localStorage
-  const saveToLocalStorage = useCallback(() => {
+  const saveToLocalStorage = useCallback((skipDirtyCheck = false) => {
     if (!storageKey) return;
-    
+
     try {
       const dataString = JSON.stringify(latestDataRef.current);
-      // 只有当数据真正改变时才保存
-      if (dataString !== lastSavedRef.current) {
-        localStorage.setItem(storageKey, dataString);
-        localStorage.setItem(`${storageKey}_timestamp`, Date.now().toString());
-        lastSavedRef.current = dataString;
+      if (!skipDirtyCheck && dataString === lastSavedRef.current) {
+        return;
       }
+      localStorage.setItem(storageKey, dataString);
+      localStorage.setItem(`${storageKey}_timestamp`, Date.now().toString());
+      lastSavedRef.current = dataString;
     } catch (error) {
       console.error('[AutoSave] 保存到 localStorage 失败:', error);
     }
@@ -116,13 +115,7 @@ export const useAutoSave = <TData,>({
 
   // 自动保存定时器
   useEffect(() => {
-    if (!enabled) return;
-
-    // 首次挂载时跳过
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
+    if (!enabled) return; 
 
     // 清除旧的定时器
     if (timerRef.current) {
@@ -145,12 +138,13 @@ export const useAutoSave = <TData,>({
   // 页面卸载前保存
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      // Check dirty state BEFORE saving
       const currentData = JSON.stringify(latestDataRef.current);
       const isDirty = currentData !== lastSavedRef.current;
 
-      // Attempt to save synchronously
-      saveToLocalStorage();
+      // Always save on beforeunload to capture latest state
+      saveToLocalStorage(true);
+
+      // Use beacon to ensure data sync if configured
       sendBeaconSnapshot();
 
       // Warn if there were unsaved changes

@@ -36,8 +36,7 @@ type OfflineQueueSyncArgs = {
 
 const safeRandomId = () => {
   try {
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-      // @ts-expect-error randomUUID exists in modern browsers
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
       return crypto.randomUUID();
     }
   } catch {
@@ -86,7 +85,8 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
     (payload: SaveScreenInput) => {
       const id = payload.id ?? safeRandomId();
       const queuedPayload = { ...payload, id };
-      void (async () => {
+
+      (async () => {
         try {
           await enqueueSaveOperation(queuedPayload, user?.id);
         } catch (error) {
@@ -95,7 +95,10 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
         } finally {
           refreshPendingQueueSize();
         }
-      })();
+      })().catch((err) => {
+        console.error("[OfflineQueue] Unhandled error in queueSaveOperation:", err);
+      });
+
       setScreens((prev) => [
         ...prev,
         {
@@ -126,7 +129,8 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
   const queueUpdateOperation = useCallback(
     (updatePayload: TablesUpdate<"screens">) => {
       if (!currentScreenId) return;
-      void (async () => {
+
+      (async () => {
         try {
           await enqueueUpdateOperation({ id: currentScreenId, update: updatePayload }, user?.id);
         } catch (error) {
@@ -135,7 +139,10 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
         } finally {
           refreshPendingQueueSize();
         }
-      })();
+      })().catch((err) => {
+        console.error("[OfflineQueue] Unhandled error in queueUpdateOperation:", err);
+      });
+
       setScreens((prev) =>
         prev.map((s) =>
           s.id === currentScreenId
