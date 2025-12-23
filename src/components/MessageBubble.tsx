@@ -1,7 +1,19 @@
 import { useState, useEffect, forwardRef, useImperativeHandle, useRef, useCallback, useMemo } from "react";
+import DOMPurify from "dompurify";
 import { debounce } from "@/lib/debounce";
 
 const MAX_PREVIEW_LENGTH = 500;
+
+const ALLOWED_URL_PROTOCOLS = ['http:', 'https:', 'ftp:', 'mailto:', 'tel:', 'data:'] as const;
+
+const isValidUrlProtocol = (url: string): boolean => {
+  try {
+    const parsed = new URL(url);
+    return ALLOWED_URL_PROTOCOLS.includes(parsed.protocol as (typeof ALLOWED_URL_PROTOCOLS)[number]);
+  } catch {
+    return false;
+  }
+};
 
 const getCodePointLength = (text: string) => Array.from(text).length;
 const sliceByCodePoints = (text: string, maxLength: number) =>
@@ -51,22 +63,23 @@ const MessageBubble = forwardRef<MessageBubbleHandle, MessageBubbleProps>(({ con
     url.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   const formatMessage = useCallback((text: string): string => {
-    // 1) Escape raw HTML first
     let safe = escapeHtml(text);
-    // 2) Convert markdown-like syntax to HTML (order matters)
     safe = safe
-      // Links [text](url) - escape URL for attribute context to prevent XSS
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)"]+)\)/g, (_, linkText, url) =>
-        `<a href="${escapeUrlForAttr(url)}" target="_blank" rel="noopener noreferrer" class="underline">${linkText}</a>`)
-      // Bold (all instances)
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) => {
+        if (!isValidUrlProtocol(url)) {
+          return `<span class="text-red-500 underline" title="无效的 URL 协议">${linkText}</span>`;
+        }
+        return `<a href="${escapeUrlForAttr(url)}" target="_blank" rel="noopener noreferrer" class="underline">${linkText}</a>`;
+      })
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      // Italic (all instances)
       .replace(/_(.*?)_/g, '<em>$1</em>')
-      // Inline code (all instances)
       .replace(/`([^`]+)`/g, '<code class="bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded text-sm font-mono">$1</code>')
-      // Line breaks
       .replace(/\n/g, '<br>');
-    return safe;
+    return DOMPurify.sanitize(safe, {
+      ALLOWED_TAGS: ['a', 'strong', 'em', 'code', 'br', 'span'],
+      ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'title'],
+      ALLOW_DATA_ATTR: false,
+    });
   }, [escapeHtml]);
 
   const htmlToMarkup = useCallback((html: string): string => {
@@ -74,8 +87,13 @@ const MessageBubble = forwardRef<MessageBubbleHandle, MessageBubbleProps>(({ con
     const brOnly = html.replace(/<br\s*\/?>/gi, "\n");
     if (!brOnly.includes("<") && !brOnly.includes("&")) return brOnly;
 
+    const sanitizedHtml = DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: ['a', 'strong', 'em', 'code', 'br', 'span'],
+      ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'title'],
+      ALLOW_DATA_ATTR: false,
+    });
     const container = document.createElement('div');
-    container.innerHTML = html;
+    container.innerHTML = sanitizedHtml;
 
     const walk = (node: Node): string => {
       if (node.nodeType === Node.TEXT_NODE) {
