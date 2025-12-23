@@ -236,7 +236,7 @@ const PendingItemsList = React.memo(({
             paddingTop,
             paddingBottom,
         };
-    }, [items, measureVersion, scrollTop, useVirtualization, viewportHeight]);
+    }, [items, scrollTop, useVirtualization, viewportHeight]);
 
     const lastItemKey = items.length ? getPendingItemKey(items[items.length - 1]) : null;
 

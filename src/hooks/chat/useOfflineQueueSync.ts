@@ -232,7 +232,6 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
     refreshPendingQueueSize,
     serializeMessagePayload,
     setCurrentScreenId,
-    setPendingQueueSize,
     setScreens,
     queueReplayCallbacks,
     user,
