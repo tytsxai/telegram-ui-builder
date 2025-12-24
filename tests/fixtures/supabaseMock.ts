@@ -238,6 +238,15 @@ export const setupSupabaseMock = async (page: Page, initialState?: Partial<Supab
 
     return respond(route, 200, {});
   });
+  
+  ctx.route("**/rpc/get_public_screen_by_token**", async (route) => {
+    const method = route.request().method();
+    if (method === "OPTIONS") return respond(route, 200, "", corsHeaders());
+    const body = parseBody(route);
+    const token = body.token as string;
+    const screen = state.screens.find(s => s.share_token === token);
+    return respond(route, 200, screen ?? null);
+  });
 
   return { state, storageKey, mockSession, mockUser };
-};
+}

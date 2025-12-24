@@ -72,7 +72,7 @@ export const useSupabaseSync = (user: User | null) => {
         setIsLoading(true);
         const requestId = createRequestId();
         try {
-            const pendingStatus = { state: "pending", requestId, message: "加载模版中" };
+            const pendingStatus: SyncStatus = { state: "pending", requestId, message: "加载模版中" };
             setShareSyncStatus(pendingStatus);
             logSyncEvent("share", pendingStatus, { action: "load_screens" });
             const result = await withRetry(async () => {
@@ -123,7 +123,7 @@ export const useSupabaseSync = (user: User | null) => {
             if (controller.signal.aborted) return;
             setScreens(result.screens);
             setPinnedIds(result.pins);
-            const successStatus = { state: "success", requestId, at: Date.now(), message: "已加载" };
+            const successStatus: SyncStatus = { state: "success", requestId, at: Date.now(), message: "已加载" };
             setShareSyncStatus(successStatus);
             logSyncEvent("share", successStatus, { action: "load_screens" });
 
@@ -156,14 +156,14 @@ export const useSupabaseSync = (user: User | null) => {
         }
         setShareLoading(true);
         const requestId = createRequestId();
-        const pendingStatus = { state: "pending", requestId, message: "保存中" };
+        const pendingStatus: SyncStatus = { state: "pending", requestId, message: "保存中" };
         setShareSyncStatus(pendingStatus);
         logSyncEvent("share", pendingStatus, { action: "save_screen" });
         try {
             const data = await dataAccess.saveScreen(payload);
             setScreens(prev => [...prev, data as unknown as Screen]);
             toast.success("Screen saved");
-            const successStatus = { state: "success", requestId, at: Date.now(), message: "保存成功" };
+            const successStatus: SyncStatus = { state: "success", requestId, at: Date.now(), message: "保存成功" };
             setShareSyncStatus(successStatus);
             logSyncEvent("share", successStatus, { action: "save_screen", targetId: (data as { id?: string }).id });
             return data;
@@ -201,13 +201,13 @@ export const useSupabaseSync = (user: User | null) => {
         setScreens((prev) => {
             snapshot = prev.find((screen) => screen.id === params.screenId) ?? null;
             const queue = updateQueueRef.current.get(params.screenId) ?? [];
-            queue.push({ version: nextVersion, snapshot, status: "pending" });
+            queue.push({ version: nextVersion, snapshot, status: "pending" as const });
             updateQueueRef.current.set(params.screenId, queue);
             return prev.map((screen) => {
                 if (screen.id !== params.screenId) return screen;
                 return {
                     ...screen,
-                    ...params.update,
+                    ...(params.update as Partial<Screen>),
                     lastUpdateTimestamp: nextVersion,
                 };
             });
@@ -375,9 +375,8 @@ export const useSupabaseSync = (user: User | null) => {
                 state: "error",
                 requestId,
                 at: item.lastAttemptAt ?? Date.now(),
-                message: `${item.kind} ${item.id} replay failed (attempt ${meta.attempt})${
-                    meta.delayMs ? `, retrying in ${meta.delayMs}ms` : ""
-                }: ${message}`,
+                message: `${item.kind} ${item.id} replay failed (attempt ${meta.attempt})${meta.delayMs ? `, retrying in ${meta.delayMs}ms` : ""
+                    }: ${message}`,
             }, { action: "queue_replay", targetId: item.id });
         },
         [createRequestId, logSyncEvent],
@@ -395,6 +394,11 @@ export const useSupabaseSync = (user: User | null) => {
         },
         [createRequestId, logSyncEvent],
     );
+
+    const queueReplayCallbacks = useMemo(() => ({
+        onItemFailure: onQueueItemReplay,
+        onSuccess: onQueueItemSuccess,
+    }), [onQueueItemReplay, onQueueItemSuccess]);
 
     useEffect(() => () => {
         loadAbortRef.current?.abort();
@@ -420,10 +424,7 @@ export const useSupabaseSync = (user: User | null) => {
         setLayoutSyncStatus,
         pendingQueueSize,
         setPendingQueueSize,
-        queueReplayCallbacks: {
-            onItemFailure: onQueueItemReplay,
-            onSuccess: onQueueItemSuccess,
-        },
+        queueReplayCallbacks,
         logSyncEvent,
         dataAccess
     };

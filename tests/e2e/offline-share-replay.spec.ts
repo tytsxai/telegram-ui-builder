@@ -9,7 +9,7 @@ test("login -> create/link -> export/import -> share -> offline queue replay", a
   const { state } = await setupSupabaseMock(page);
 
   await page.goto("/");
-  await page.getByRole("button", { name: /跳过引导/ }).click({ timeout: 6000 }).catch(() => {});
+  await page.getByRole("button", { name: /跳过引导/ }).click({ timeout: 6000 }).catch(() => { });
   await expect(page.locator('[data-testid="inline-keyboard"]')).toBeVisible({ timeout: 10000 });
   await expect.poll(() => page.evaluate((key) => !!localStorage.getItem(key), storageKey)).toBeTruthy();
 
@@ -80,7 +80,7 @@ test("login -> create/link -> export/import -> share -> offline queue replay", a
   await expect(page.locator('[contenteditable="true"]', { hasText: "Imported via E2E" }).first()).toBeVisible();
 
   // Share entry screen and capture link
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:4173" });
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:8080" });
   await page.getByRole("button", { name: "生成/复制入口链接" }).click();
   await expect.poll(() => state.screens.find((s) => s.id === entryId)?.share_token ?? "").not.toBe("");
   const sharedEntry = state.screens.find((s) => s.id === entryId);
