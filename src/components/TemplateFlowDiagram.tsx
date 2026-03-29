@@ -877,8 +877,6 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
   const runSmartArrange = useCallback(() => {
     if (screens.length === 0) return;
 
-    if (screens.length === 0) return;
-
     // Always use Dagre layout for consistent hierarchical structure
     // Remove custom radial/mindmap logic as requested to fix large graph layout issues
 
@@ -897,6 +895,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     }
 
     const positions = new Map<string, { x: number; y: number }>();
+    const screenIds = new Set(screens.map((screen) => screen.id));
 
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setGraph({
@@ -916,7 +915,7 @@ const TemplateFlowDiagram: React.FC<TemplateFlowDiagramProps> = ({
     screens.forEach(screen => {
       screen.keyboard.forEach(row => {
         row.buttons.forEach(btn => {
-          if (btn.linked_screen_id && screens.find(s => s.id === btn.linked_screen_id)) {
+          if (btn.linked_screen_id && screenIds.has(btn.linked_screen_id)) {
             dagreGraph.setEdge(screen.id, btn.linked_screen_id);
           }
         });

@@ -140,8 +140,7 @@ export const getRuntimeConfigReport = (env: RuntimeEnv = import.meta.env): Runti
     supabaseUrl: url ?? FALLBACK_SUPABASE_URL,
     supabasePublishableKey: key ?? FALLBACK_SUPABASE_PUBLISHABLE_KEY,
     issues,
-    // DISABLED for easier dev experience: never block the UI even if config is messy
-    hasBlockingIssues: false, 
+    hasBlockingIssues: isProd && issues.some((issue) => issue.level === "error"),
   };
 
   return report;
