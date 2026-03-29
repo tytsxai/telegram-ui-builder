@@ -262,9 +262,9 @@ export const useBuilderStore = () => {
   const applyScreenState = useCallback(
     (screen: Screen) => {
       loadMessagePayload(screen.message_content);
-      if (screen.parse_mode) setParseMode(screen.parse_mode);
-      if (screen.message_type) setMessageType(screen.message_type);
-      if (screen.media_url) setMediaUrl(screen.media_url);
+      if (screen.parse_mode !== undefined && screen.parse_mode !== null) setParseMode(screen.parse_mode);
+      if (screen.message_type !== undefined && screen.message_type !== null) setMessageType(screen.message_type);
+      if (screen.media_url !== undefined) setMediaUrl(screen.media_url ?? "");
       setKeyboard(screen.keyboard as KeyboardRow[]);
       setLastSavedSnapshot({
         messageContent: screen.message_content,
@@ -273,6 +273,18 @@ export const useBuilderStore = () => {
       setCurrentScreenId(screen.id);
     },
     [loadMessagePayload, setParseMode, setMessageType, setMediaUrl, setKeyboard, setLastSavedSnapshot, setCurrentScreenId]
+  );
+
+  const buildEditorScreenUpdatePayload = useCallback(
+    (): TablesUpdate<"screens"> => ({
+      message_content: serializeMessagePayload(),
+      keyboard: keyboard as unknown as Json,
+      parse_mode: parseMode,
+      message_type: messageType,
+      media_url: messageType === "text" ? null : mediaUrl || null,
+      updated_at: new Date().toISOString(),
+    }),
+    [keyboard, mediaUrl, messageType, parseMode, serializeMessagePayload],
   );
 
   const togglePreviewMode = useCallback(() => {
@@ -285,18 +297,42 @@ export const useBuilderStore = () => {
     });
   }, [completeOnboardingStep]);
 
+  const openScreenInEditor = useCallback(
+    (screenId: string) => {
+      const screen = screenById.get(screenId);
+      if (!screen) {
+        toast.error("目标模版不存在");
+        return false;
+      }
+      handleNavigateToScreen(screenId);
+      applyScreenState(screen);
+      return true;
+    },
+    [applyScreenState, handleNavigateToScreen, screenById],
+  );
+
+  const handlePreviewNavigateBack = useCallback(() => {
+    const previousScreenId = navigationHistory[navigationHistory.length - 2];
+    handleNavigateBack();
+    if (!previousScreenId) return;
+    const previousScreen = screenById.get(previousScreenId);
+    if (previousScreen) {
+      applyScreenState(previousScreen);
+    }
+  }, [applyScreenState, handleNavigateBack, navigationHistory, screenById]);
+
   const handleButtonClick = useCallback(
     (button: KeyboardButton) => {
       if (!isPreviewMode) return;
       if (button.linked_screen_id) {
-        handleNavigateToScreen(button.linked_screen_id);
+        openScreenInEditor(button.linked_screen_id);
       } else if (button.url) {
         window.open(button.url, "_blank", "noopener,noreferrer");
       } else {
         toast.info(`Callback: ${button.callback_data}`);
       }
     },
-    [handleNavigateToScreen, isPreviewMode]
+    [isPreviewMode, openScreenInEditor]
   );
 
   // Offline queue helpers moved to useOfflineQueueSync
@@ -415,11 +451,7 @@ export const useBuilderStore = () => {
       return;
     }
 
-    const updatePayload: TablesUpdate<"screens"> = {
-      message_content: serializeMessagePayload(),
-      keyboard: keyboard as unknown as Json,
-      updated_at: new Date().toISOString(),
-    };
+    const updatePayload = buildEditorScreenUpdatePayload();
 
     if (isOffline) {
       queueUpdateOperation(updatePayload);
@@ -441,12 +473,20 @@ export const useBuilderStore = () => {
         queueUpdateOperation(updatePayload);
       }
     }
-  }, [currentScreenId, isOffline, keyboard, messageContent, queueUpdateOperation, serializeMessagePayload, setLastSavedSnapshot, updateScreen, user]);
+  }, [buildEditorScreenUpdatePayload, currentScreenId, isOffline, keyboard, messageContent, queueUpdateOperation, serializeMessagePayload, setLastSavedSnapshot, updateScreen, user]);
+
+  const handleSaveShortcut = useCallback(() => {
+    if (currentScreenId) {
+      void handleUpdateScreen();
+      return;
+    }
+    void handleSaveScreen();
+  }, [currentScreenId, handleSaveScreen, handleUpdateScreen]);
 
   useGlobalShortcuts({
     onUndo: undo,
     onRedo: redo,
-    onSave: handleSaveScreen,
+    onSave: handleSaveShortcut,
     canUndo,
     canRedo,
   });
@@ -757,6 +797,7 @@ export const useBuilderStore = () => {
   }, [currentScreenId, editableJSON, setKeyboard, setMediaUrl, setMessageContent, setMessageType, setParseMode, user?.id]);
 
   const handleCreateLink = useCallback((sourceId: string, targetId: string) => {
+    let updatedKeyboard: KeyboardRow[] | null = null;
     setScreens((prev) => {
       const next = prev.map((s) => {
         if (s.id !== sourceId) return s;
@@ -780,11 +821,37 @@ export const useBuilderStore = () => {
           setKeyboard(rows);
           pushToHistory(messageContent, rows);
         }
+        updatedKeyboard = rows;
         return { ...s, keyboard: rows };
       });
       return next;
     });
-  }, [currentScreenId, pushToHistory, messageContent, setKeyboard, setScreens]);
+    if (!updatedKeyboard || currentScreenId === sourceId) {
+      return;
+    }
+
+    const updatePayload: TablesUpdate<"screens"> = {
+      keyboard: updatedKeyboard as unknown as Json,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (isOffline) {
+      queueUpdateOperation(updatePayload, sourceId);
+      return;
+    }
+
+    void updateScreen({
+      screenId: sourceId,
+      update: updatePayload,
+    }).catch((error) => {
+      if (isNetworkError(error)) {
+        queueUpdateOperation(updatePayload, sourceId);
+        return;
+      }
+      console.error("Error saving flow link:", error);
+      toast.error("关系图连线保存失败");
+    });
+  }, [currentScreenId, isOffline, messageContent, pushToHistory, queueUpdateOperation, setKeyboard, setScreens, updateScreen]);
 
   const generateShareToken = useCallback(() => {
     if (typeof crypto !== "undefined") {
@@ -1031,13 +1098,9 @@ export const useBuilderStore = () => {
 
   const handleLoadScreen = useCallback(
     (id: string) => {
-      handleNavigateToScreen(id);
-      const screen = screenById.get(id);
-      if (screen) {
-        applyScreenState(screen);
-      }
+      openScreenInEditor(id);
     },
-    [applyScreenState, handleNavigateToScreen, screenById],
+    [openScreenInEditor],
   );
 
   const handleDeleteAllScreens = useCallback(async () => {
@@ -1203,7 +1266,7 @@ export const useBuilderStore = () => {
     screens,
     navigationHistory,
     currentScreenId,
-    onNavigateBack: handleNavigateBack,
+    onNavigateBack: handlePreviewNavigateBack,
     currentScreenName,
     entryScreenId,
     hasUnsavedChanges,
@@ -1219,7 +1282,7 @@ export const useBuilderStore = () => {
     handleButtonTextChange,
     handleButtonUpdate,
     handleDeleteButton,
-    handleNavigateBack,
+    handlePreviewNavigateBack,
     handleReorder,
     hasUnsavedChanges,
     isOffline,
@@ -1313,11 +1376,8 @@ export const useBuilderStore = () => {
       setEditingButtonData(null);
     },
     onOpenScreen: (screenId: string) => {
-      handleNavigateToScreen(screenId);
       const screen = screenById.get(screenId);
-      if (screen) {
-        applyScreenState(screen);
-      }
+      if (!openScreenInEditor(screenId)) return;
       toast.success(`✅ 已跳转到: ${screen?.name ?? "Unknown"}`);
     },
     onCreateAndOpen: () => {
@@ -1325,12 +1385,11 @@ export const useBuilderStore = () => {
       toast.info("🆕 已创建新模版，请先保存以便可被链接");
     },
   }), [
-    applyScreenState,
     buttonEditDialogOpen,
     createNewScreen,
     editingButtonData,
     handleButtonUpdate,
-    handleNavigateToScreen,
+    openScreenInEditor,
     screens,
     screenById,
     setButtonEditDialogOpen,
@@ -1367,24 +1426,20 @@ export const useBuilderStore = () => {
     onLayoutSync: setLayoutSyncStatus,
     onCreateLink: handleCreateLink,
     onScreenClick: (screenId: string) => {
-      handleNavigateToScreen(screenId);
       const screen = screenById.get(screenId);
-      if (screen) {
-        applyScreenState(screen);
-      }
+      if (!openScreenInEditor(screenId)) return;
       toast.success(`✅ 已跳转到: ${screen?.name ?? "Unknown"}`);
     },
     onSetEntry: handleSetEntry,
     onDeleteScreen: deleteScreen,
   }), [
-    applyScreenState,
     currentScreenId,
     deleteScreen,
     entryScreenId,
     flowDiagramOpen,
     handleCreateLink,
-    handleNavigateToScreen,
     handleSetEntry,
+    openScreenInEditor,
     pinnedIds,
     screenById,
     screens,
@@ -1408,11 +1463,8 @@ export const useBuilderStore = () => {
     screens,
     currentScreenId,
     onNavigateToScreen: (screenId: string) => {
-      handleNavigateToScreen(screenId);
       const screen = screenById.get(screenId);
-      if (screen) {
-        applyScreenState(screen);
-      }
+      if (!openScreenInEditor(screenId)) return;
       toast.success(`✅ 已跳转到: ${screen?.name ?? "Unknown"}`);
     },
     onOpenFlowDiagram: () => {
@@ -1420,11 +1472,10 @@ export const useBuilderStore = () => {
       setFlowDiagramOpen(true);
     },
   }), [
-    applyScreenState,
     circularDialogOpen,
     circularPathsMemo,
     currentScreenId,
-    handleNavigateToScreen,
+    openScreenInEditor,
     screenById,
     screens,
     setCircularDialogOpen,

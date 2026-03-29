@@ -127,12 +127,12 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
   );
 
   const queueUpdateOperation = useCallback(
-    (updatePayload: TablesUpdate<"screens">) => {
-      if (!currentScreenId) return;
+    (updatePayload: TablesUpdate<"screens">, targetScreenId = currentScreenId) => {
+      if (!targetScreenId) return;
 
       (async () => {
         try {
-          await enqueueUpdateOperation({ id: currentScreenId, update: updatePayload }, user?.id);
+          await enqueueUpdateOperation({ id: targetScreenId, update: updatePayload }, user?.id);
         } catch (error) {
           console.error("[OfflineQueue] Failed to enqueue update:", error);
           toast.error("离线更新失败，可能无法恢复");
@@ -145,12 +145,15 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
 
       setScreens((prev) =>
         prev.map((s) =>
-          s.id === currentScreenId
+          s.id === targetScreenId
             ? ({
                 ...s,
                 message_content: updatePayload.message_content ?? s.message_content,
                 keyboard: updatePayload.keyboard ? cloneKeyboard(updatePayload.keyboard as KeyboardRow[]) : s.keyboard,
                 name: updatePayload.name ?? s.name,
+                parse_mode: updatePayload.parse_mode ?? s.parse_mode,
+                message_type: updatePayload.message_type ?? s.message_type,
+                media_url: updatePayload.media_url ?? s.media_url,
                 updated_at: updatePayload.updated_at ?? s.updated_at,
               } as Screen)
             : s,
