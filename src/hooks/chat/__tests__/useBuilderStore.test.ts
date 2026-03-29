@@ -5,6 +5,30 @@ let pendingQueueSize = 0;
 const sharedPendingItem = { id: "pending-1" };
 const readPendingOpsMock = vi.fn(() => [sharedPendingItem]);
 const loadScreensMock = vi.fn();
+const updateScreenMock = vi.fn();
+const queueUpdateOperationMock = vi.fn();
+const setScreensMock = vi.fn();
+const setKeyboardMock = vi.fn();
+const pushToHistoryMock = vi.fn();
+const serializeMessagePayloadMock = vi.fn(() => "serialized");
+const setParseModeMock = vi.fn();
+const setMessageTypeMock = vi.fn();
+const setMediaUrlMock = vi.fn();
+const loadMessagePayloadMock = vi.fn();
+const handleNavigateToScreenMock = vi.fn();
+let parseModeState: "HTML" | "MarkdownV2" = "HTML";
+let messageTypeState: "text" | "photo" | "video" = "text";
+let mediaUrlState = "";
+let currentScreenId = undefined as string | undefined;
+let screensState: Array<{
+  id: string;
+  name: string;
+  message_content: string;
+  keyboard: Array<{ id: string; buttons: Array<{ id: string; text: string; linked_screen_id?: string }> }>;
+  parse_mode?: "HTML" | "MarkdownV2";
+  message_type?: "text" | "photo" | "video";
+  media_url?: string | null;
+}> = [];
 
 vi.mock("react-router-dom", () => ({
   useNavigate: () => vi.fn(),
@@ -31,14 +55,14 @@ vi.mock("@/hooks/chat/useChatState", () => ({
     messageContent: "Hello",
     setMessageContent: vi.fn(),
     keyboard: [],
-    setKeyboard: vi.fn(),
-    parseMode: "HTML",
-    setParseMode: vi.fn(),
-    messageType: "text",
-    setMessageType: vi.fn(),
-    mediaUrl: "",
-    setMediaUrl: vi.fn(),
-    pushToHistory: vi.fn(),
+    setKeyboard: setKeyboardMock,
+    parseMode: parseModeState,
+    setParseMode: setParseModeMock,
+    messageType: messageTypeState,
+    setMessageType: setMessageTypeMock,
+    mediaUrl: mediaUrlState,
+    setMediaUrl: setMediaUrlMock,
+    pushToHistory: pushToHistoryMock,
     undo: vi.fn(),
     redo: vi.fn(),
     canUndo: false,
@@ -46,21 +70,21 @@ vi.mock("@/hooks/chat/useChatState", () => ({
     editableJSON: "{}",
     setEditableJSON: vi.fn(),
     convertToTelegramFormat: vi.fn(() => ({})),
-    serializeMessagePayload: vi.fn(() => "serialized"),
-    loadMessagePayload: vi.fn(),
+    serializeMessagePayload: serializeMessagePayloadMock,
+    loadMessagePayload: loadMessagePayloadMock,
     loadTemplate: vi.fn(() => ({ ok: true })),
   }),
 }));
 
 vi.mock("@/hooks/chat/useSupabaseSync", () => ({
   useSupabaseSync: () => ({
-    screens: [],
-    setScreens: vi.fn(),
+    screens: screensState,
+    setScreens: setScreensMock,
     pinnedIds: [],
     isLoading: false,
     loadScreens: loadScreensMock,
     saveScreen: vi.fn(),
-    updateScreen: vi.fn(),
+    updateScreen: updateScreenMock,
     deleteScreen: vi.fn(),
     deleteAllScreens: vi.fn(),
     handleTogglePin: vi.fn(),
@@ -95,12 +119,12 @@ vi.mock("@/hooks/chat/useKeyboardActions", () => ({
 
 vi.mock("@/hooks/chat/useScreenNavigation", () => ({
   useScreenNavigation: () => ({
-    currentScreenId: undefined,
+    currentScreenId,
     setCurrentScreenId: vi.fn(),
     navigationHistory: [],
     entryScreenId: null,
     handleNavigateBack: vi.fn(),
-    handleNavigateToScreen: vi.fn(),
+    handleNavigateToScreen: handleNavigateToScreenMock,
     handleSetEntry: vi.fn(),
     handleJumpToEntry: vi.fn(),
   }),
@@ -135,7 +159,7 @@ vi.mock("@/hooks/chat/useOfflineQueueSync", () => ({
     retryingQueue: false,
     refreshPendingQueueSize: vi.fn(),
     queueSaveOperation: vi.fn(),
-    queueUpdateOperation: vi.fn(),
+    queueUpdateOperation: queueUpdateOperationMock,
     replayPendingQueue: vi.fn(),
     clearPendingQueue: vi.fn(),
   }),
@@ -150,8 +174,26 @@ import { useBuilderStore } from "../useBuilderStore";
 describe("useBuilderStore performance selectors", () => {
   beforeEach(() => {
     pendingQueueSize = 0;
+    parseModeState = "HTML";
+    messageTypeState = "text";
+    mediaUrlState = "";
+    currentScreenId = undefined;
+    screensState = [];
     readPendingOpsMock.mockClear();
     loadScreensMock.mockClear();
+    updateScreenMock.mockReset();
+    queueUpdateOperationMock.mockReset();
+    setKeyboardMock.mockReset();
+    pushToHistoryMock.mockReset();
+    setParseModeMock.mockReset();
+    setMessageTypeMock.mockReset();
+    setMediaUrlMock.mockReset();
+    loadMessagePayloadMock.mockReset();
+    handleNavigateToScreenMock.mockReset();
+    setScreensMock.mockImplementation((value) => {
+      screensState = typeof value === "function" ? value(screensState) : value;
+    });
+    serializeMessagePayloadMock.mockImplementation(() => "serialized");
   });
 
   it("does not recompute pending items on unrelated state updates", () => {
@@ -177,5 +219,112 @@ describe("useBuilderStore performance selectors", () => {
 
     expect(readPendingOpsMock).toHaveBeenCalledTimes(2);
     expect(result.current.bottomPanelProps.pendingItems).toBe(initialPendingItems);
+  });
+
+  it("persists parse mode and media metadata when updating the current screen", async () => {
+    currentScreenId = "screen-1";
+    parseModeState = "MarkdownV2";
+    messageTypeState = "photo";
+    mediaUrlState = "https://cdn.test/image.png";
+    updateScreenMock.mockResolvedValue({});
+    serializeMessagePayloadMock.mockImplementation(() => "{\"type\":\"photo\",\"text\":\"hello\",\"mediaUrl\":\"https://cdn.test/image.png\",\"parse_mode\":\"MarkdownV2\"}");
+
+    const { result } = renderHook(() => useBuilderStore());
+
+    await act(async () => {
+      await result.current.leftPanelProps.onUpdateScreen();
+    });
+
+    expect(updateScreenMock).toHaveBeenCalledWith({
+      screenId: "screen-1",
+      update: expect.objectContaining({
+        message_content: "{\"type\":\"photo\",\"text\":\"hello\",\"mediaUrl\":\"https://cdn.test/image.png\",\"parse_mode\":\"MarkdownV2\"}",
+        parse_mode: "MarkdownV2",
+        message_type: "photo",
+        media_url: "https://cdn.test/image.png",
+      }),
+    });
+  });
+
+  it("saves flow-diagram links for non-current screens instead of leaving them only in local state", async () => {
+    screensState = [
+      {
+        id: "screen-1",
+        name: "Source",
+        message_content: "source",
+        keyboard: [{ id: "row-1", buttons: [{ id: "btn-1", text: "Go" }] }],
+      },
+      {
+        id: "screen-2",
+        name: "Target",
+        message_content: "target",
+        keyboard: [],
+      },
+    ];
+    currentScreenId = "screen-2";
+    updateScreenMock.mockResolvedValue({});
+
+    const { result } = renderHook(() => useBuilderStore());
+
+    await act(async () => {
+      result.current.dialogState.flowDiagram.onCreateLink?.("screen-1", "screen-2");
+      await Promise.resolve();
+    });
+
+    expect(updateScreenMock).toHaveBeenCalledWith({
+      screenId: "screen-1",
+      update: expect.objectContaining({
+        keyboard: expect.arrayContaining([
+          expect.objectContaining({
+            buttons: expect.arrayContaining([
+              expect.objectContaining({ linked_screen_id: "screen-2" }),
+            ]),
+          }),
+        ]),
+      }),
+    });
+    expect(queueUpdateOperationMock).not.toHaveBeenCalled();
+  });
+
+  it("loads the target screen into the editor when preview navigation follows a linked button", () => {
+    screensState = [
+      {
+        id: "screen-1",
+        name: "Source",
+        message_content: "source",
+        keyboard: [{ id: "row-1", buttons: [{ id: "btn-1", text: "Go", linked_screen_id: "screen-2" }] }],
+      },
+      {
+        id: "screen-2",
+        name: "Target",
+        message_content: "{\"type\":\"photo\",\"text\":\"target\",\"mediaUrl\":\"https://cdn.test/target.png\",\"parse_mode\":\"MarkdownV2\"}",
+        keyboard: [{ id: "row-2", buttons: [] }],
+        parse_mode: "MarkdownV2",
+        message_type: "photo",
+        media_url: "https://cdn.test/target.png",
+      },
+    ];
+    currentScreenId = "screen-1";
+
+    const { result } = renderHook(() => useBuilderStore());
+
+    act(() => {
+      result.current.centerCanvasProps.onToggleMode();
+    });
+
+    act(() => {
+      result.current.centerCanvasProps.onButtonClick({
+        id: "btn-1",
+        text: "Go",
+        linked_screen_id: "screen-2",
+      });
+    });
+
+    expect(handleNavigateToScreenMock).toHaveBeenCalledWith("screen-2");
+    expect(loadMessagePayloadMock).toHaveBeenCalledWith("{\"type\":\"photo\",\"text\":\"target\",\"mediaUrl\":\"https://cdn.test/target.png\",\"parse_mode\":\"MarkdownV2\"}");
+    expect(setParseModeMock).toHaveBeenCalledWith("MarkdownV2");
+    expect(setMessageTypeMock).toHaveBeenCalledWith("photo");
+    expect(setMediaUrlMock).toHaveBeenCalledWith("https://cdn.test/target.png");
+    expect(setKeyboardMock).toHaveBeenCalledWith([{ id: "row-2", buttons: [] }]);
   });
 });
