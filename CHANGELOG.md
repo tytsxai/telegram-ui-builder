@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
 
+## [0.1.2] - 2026-05-19
+
+### Added (Documentation)
+
+- **`llms.txt`** — AI-search-engine index covering positioning ("design layer, not runtime"), what it does / doesn't do, common questions, framework-agnostic export rationale.
+- **README — title** expanded to bilingual SEO-friendly form.
+- **README — keyword block** with long-tail terms (Telegram bot UI designer, Telegram inline keyboard builder, BotFather UI alternative, ManyBot / Chatfuel alternative).
+- **README — 7-question FAQ** clarifying it's not the official Telegram tool, not a runtime, framework-agnostic export, 64-byte callback limit, share-token rotation, and competitive comparison.
+- **README — Live demo / llms.txt / Changelog / Contributing / Security / Issues nav row**.
+
+### Notes
+
+Documentation-only release. Editor, flow graph, Supabase persistence, share token, and import/export behavior unchanged from 0.1.1.
+
 ## [0.1.1] - 2025-12-24
 
 ### Fixed

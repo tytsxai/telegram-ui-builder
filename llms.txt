@@ -1,0 +1,60 @@
+# Telegram UI Builder
+
+> Open-source visual workbench for designing Telegram bot messages and inline-keyboard flows. Drag-build screens, branch flows, edit keyboards row-by-row with byte counters, inspect the flow graph in 2D, persist locally or to Supabase, import/export JSON, share via tokenized public link. Vite + React + TypeScript + Tailwind + shadcn-ui.
+
+This is **not** a Telegram bot runtime. It does not run your bot. It is the **design tool** you use to prototype, share, and export the conversation structure that your bot will then implement. Operators and product designers can lay out the full message-and-keyboard tree without touching JSON; developers then import the export into their bot framework of choice.
+
+## Key docs
+
+- [README.md](README.md): Main README — quick start, scripts, Supabase env setup, workbench tips.
+- [CHANGELOG.md](CHANGELOG.md): Version history.
+- [docs/improvement-plan.md](docs/improvement-plan.md): Overall product plan.
+- [docs/architecture-map.md](docs/architecture-map.md): Module + boundary map.
+- [docs/backend-readiness.md](docs/backend-readiness.md): Supabase / RLS checklist.
+- [docs/cloud-persistence.md](docs/cloud-persistence.md): Cloud persistence steps.
+- [docs/offline-queue.md](docs/offline-queue.md): Offline queue contract.
+- [docs/flow-export-format.md](docs/flow-export-format.md): Import / export JSON format.
+- [docs/ops-runbook.md](docs/ops-runbook.md): Sync / retry / Supabase backoff operations.
+- [docs/ui-test-plan.md](docs/ui-test-plan.md): UI test checklist.
+- [docs/telemetry.md](docs/telemetry.md): Sync telemetry integration.
+
+## What Telegram UI Builder does
+
+- **Visual screen editor**: each screen has a Markdown-formatted message + an inline keyboard
+- **Inline keyboard builder**: row-by-row, drag-reorder, double-click rename, callback/URL/screen-link targets with 64-byte counter
+- **Flow graph view**: 2D map of how screens link together — toggle mind-map mode, focus current node, hide isolated nodes, show button labels
+- **Branch / loop detection**: warns before deletion if a screen is referenced
+- **Undo / redo / safe-delete prompts**
+- **Two persistence modes**: local offline queue (browser) + Supabase cloud (RLS-protected, sign-in required for cloud)
+- **Import / Export JSON**: round-trippable; format documented in `docs/flow-export-format.md`
+- **Shareable public link**: `/share/:token` — author + timestamp visible, "Copy and edit" action for signed-in users, token rotation, public revocation
+- **Template library**: curated starters in `public/templates/*.json`, with auto-validation
+
+## What Telegram UI Builder does NOT do
+
+- ❌ Run your Telegram bot — it does not call the Telegram Bot API
+- ❌ Replace a Telegram bot framework (aiogram, grammy, telegraf, node-telegram-bot-api, etc.) — it's the *design* layer above them
+- ❌ Embed your real Telegram credentials anywhere
+- ❌ Support non-inline-keyboard UI (reply keyboards, web apps) yet
+- ❌ Auto-publish your flow to a real bot — you export JSON and implement the runtime yourself
+
+## Common questions
+
+- **How do I connect this to a real bot?** Design your flow, export JSON via `docs/flow-export-format.md`, then implement the routing in your bot framework. The export is intentionally framework-agnostic.
+- **Do I need Supabase?** No — you can run fully offline with browser-only persistence. Supabase is needed only if you want cloud sync or shareable public links.
+- **Can I share a design without account?** Sharing requires a sign-in to Supabase (so the share token has a known author). Local-only designs stay on your machine.
+- **What's the 64-byte counter on buttons?** Telegram limits `callback_data` to 64 bytes. The editor enforces this with a live counter so the export won't break the bot.
+- **GitHub Pages deployment works?** Yes — see the `.github/workflows/pages.yml`. You must configure Actions Secrets (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`) or build:prod will fail.
+- **Is this affiliated with Telegram?** No. Telegram is a trademark of Telegram Messenger LLP; this is a third-party tool with no endorsement.
+
+## Repository
+
+- GitHub: https://github.com/tytsxai/telegram-ui-builder
+- License: MIT
+- Stack: Vite + React + TypeScript + Tailwind + shadcn-ui + Supabase (optional)
+- Live demo: https://telegram-ui-components.lovable.app
+- Author: tytsxai
+
+## Useful search phrases
+
+- Telegram bot UI designer, Telegram bot flow builder, Telegram inline keyboard builder, Telegram bot conversation designer, no-code Telegram bot designer, Telegram 机器人可视化设计, Telegram bot 消息流程图, Telegram inline keyboard 编辑器, Telegram 机器人 JSON 导出, Telegram bot 模板, Telegram bot 分享设计, Supabase Telegram bot designer, open-source Telegram bot designer, alternative to BotFather UI design, alternative to ManyBot UI, alternative to Chatfuel for Telegram

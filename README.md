@@ -1,9 +1,16 @@
-# Telegram UI Builder
+# Telegram UI Builder · Telegram 机器人消息与 inline keyboard 可视化设计器
 
 [![CI](https://github.com/tytsxai/telegram-ui-builder/actions/workflows/ci.yml/badge.svg)](https://github.com/tytsxai/telegram-ui-builder/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/tytsxai/telegram-ui-builder)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/tytsxai/telegram-ui-builder)](https://github.com/tytsxai/telegram-ui-builder/releases)
 
-一个可视化工作台，用来设计 Telegram 机器人消息和 inline keyboard 流程；带全屏编辑器、关系图、离线/云端持久化、导入导出、一键分享。Built with Vite + React + TypeScript + Tailwind + shadcn-ui.
+[Live Demo](https://telegram-ui-components.lovable.app) · [llms.txt](llms.txt) · [Changelog](CHANGELOG.md) · [Contributing](docs/contributing.md) · [Security](SECURITY.md) · [Issues](https://github.com/tytsxai/telegram-ui-builder/issues)
+
+> **关键词**:Telegram 机器人可视化设计 · Telegram bot UI 设计器 · Telegram inline keyboard 编辑器 · Telegram bot 消息流程图 · Telegram 机器人 JSON 导出 · Telegram bot 模板 · no-code Telegram bot 设计
+>
+> **Keywords**: Telegram bot UI designer · Telegram bot flow builder · Telegram inline keyboard builder · Telegram bot conversation designer · no-code Telegram bot designer · open-source Telegram bot designer · BotFather UI alternative · ManyBot alternative · Chatfuel for Telegram alternative
+
+一个可视化工作台,用来设计 Telegram 机器人消息和 inline keyboard 流程;带全屏编辑器、关系图、离线/云端持久化、导入导出、一键分享。**它不是 bot 运行时,而是 bot 的设计层** —— 你用它把对话结构画清楚,然后导出 JSON 让 aiogram / grammy / telegraf 等框架去实现。Built with Vite + React + TypeScript + Tailwind + shadcn-ui.
 
 快速链接：
 - Repo: https://github.com/tytsxai/telegram-ui-builder
@@ -106,6 +113,31 @@ SUPABASE_PROJECT_REF=<ref> npm run check:supabase-types
 - 多轮问答、问卷、引导类机器人对话设计。
 - 为运营/产品提供可视化工作台，避免直接编辑 JSON。
 - 先验证文案/按钮布局，再对接真实机器人后端。
+
+## ❓ FAQ
+
+**Q:这是 Telegram 官方工具吗?**
+不是。Telegram 是 Telegram Messenger LLP 商标,本项目是无关联的第三方工具。
+
+**Q:它会自己跑机器人吗?能直接对接 Bot API 吗?**
+**不会**。这是**设计层**,不是运行时。你把流程画好、导出 JSON,然后让 aiogram / grammy / telegraf 等框架去实现 router。
+
+**Q:必须用 Supabase 吗?**
+不必。完全离线、纯浏览器持久化也能用;只在需要云同步 / 分享链接时才需要 Supabase。
+
+**Q:按钮上那个 64-byte 计数器是什么?**
+Telegram 限制 `callback_data` 最多 64 字节。编辑器实时显示字节数,避免导出后机器人报错。
+
+**Q:分享链接安全吗?会不会泄露我的设计?**
+分享是带 token 的;可以随时旋转 token 或撤销公开。但既然是公开链接,谁拿到链接谁就能看到内容 —— 别把敏感设计放进分享流程。
+
+**Q:导出的 JSON 能直接喂给哪些框架?**
+导出格式是**框架无关**的。aiogram(Python)、grammy(Node TS)、telegraf(Node JS)、python-telegram-bot 都能基于这个 JSON 自己实现 router。
+
+**Q:与 BotFather / ManyBot / Chatfuel 有什么区别?**
+- BotFather 不提供 UI 设计,只创建机器人
+- ManyBot / Chatfuel 是 SaaS,绑定他们的 hosting
+- 本项目是**开源 + 框架无关 + 可自托管**的纯设计工具,导出 JSON 后想用什么框架运行随便
 
 ## 参考文档
 - `docs/improvement-plan.md`（整体规划）
