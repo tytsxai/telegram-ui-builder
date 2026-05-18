@@ -43,11 +43,9 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
-        with:
-          # Pages was not pre-enabled on this repo (primary hosting is on
-          # Lovable; GH Pages is the legacy mirror per README). Let the
-          # action enable Pages on first run instead of failing with 404.
-          enablement: true
+        # Pages is enabled at the repo level (build_type=workflow) so the
+        # action just reads the config. `enablement: true` requires pages:admin
+        # which the default GITHUB_TOKEN does not have.
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
