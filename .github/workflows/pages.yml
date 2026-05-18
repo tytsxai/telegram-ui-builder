@@ -43,6 +43,11 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          # Pages was not pre-enabled on this repo (primary hosting is on
+          # Lovable; GH Pages is the legacy mirror per README). Let the
+          # action enable Pages on first run instead of failing with 404.
+          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
