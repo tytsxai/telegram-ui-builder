@@ -170,3 +170,7 @@ Bundled rewrites: `public/_redirects` (Netlify/Cloudflare Pages), `netlify.toml`
 - Runbook: `docs/ops-runbook.md` covers Supabase backoff, offline queue, rate-limit guidance, and recovery steps.
 - Sync badges in the UI surface share/layout request status with correlation IDs for debugging.‬‬
 - Telemetry: hook `setSyncTelemetryPublisher` (see `docs/telemetry.md`) to forward sync events (share/layout/queue) with requestIds to your logging/analytics sink.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=tytsxai/telegram-ui-builder&type=Date)](https://www.star-history.com/#tytsxai/telegram-ui-builder&Date)
