@@ -83,4 +83,9 @@
 ## Verification Commands
 - `npm run security:all` (Supabase SQL scan + runtime verification)
 - `npm run lint && npm run test && npm run build`
+- `VITE_SUPABASE_URL=https://imblnkgnerlewrhdzqis.supabase.co VITE_SUPABASE_PUBLISHABLE_KEY=test-key npm run test:e2e -- --reporter=line --workers=1`
 - `npm audit --production`
+
+## GitHub Actions Maintenance
+- Keep first-party GitHub actions on the current major versions (`actions/checkout`, `actions/setup-node`, and Pages deploy actions) so hosted runner Node deprecations do not turn into CI failures.
+- `CI` should keep `workflow_dispatch` enabled for manual verification after fixing flaky e2e or dependency-update failures.

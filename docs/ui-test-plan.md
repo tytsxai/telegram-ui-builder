@@ -38,3 +38,5 @@ Scope: desktop workbench layout (left/right panels, center canvas, bottom panel)
 ## Checklist Notes
 - **关系图**: 确认节点徽标/循环提示正常，布局保存/恢复有效。
 - **键盘编辑器**: 验证按钮链接屏幕/回调/URL 配置，避免循环或未配置按钮。
+- **E2E 环境**: Playwright 测试使用 mock Supabase API，但需要设置 `VITE_SUPABASE_URL=https://imblnkgnerlewrhdzqis.supabase.co` 和 `VITE_SUPABASE_PUBLISHABLE_KEY=test-key`，确保 supabase-js 派生的 localStorage key 与 fixture 一致。
+- **CI 补跑**: `CI` workflow 支持 `workflow_dispatch`，修复 e2e 或 mock 后可以在 Actions 页面手动补跑，不必制造空提交。
