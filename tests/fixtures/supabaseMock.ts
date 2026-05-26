@@ -8,6 +8,7 @@ export type SupabaseMockState = {
 };
 
 export const storageKey = "sb-imblnkgnerlewrhdzqis-auth-token";
+const fallbackStorageKey = "sb-localhost-auth-token";
 export const mockUser = { id: "user-e2e", email: "e2e@example.com", role: "authenticated", aud: "authenticated" };
 export const mockSession = {
   access_token: "e2e-access-token",
@@ -49,12 +50,14 @@ const respond = async (route: Route, status: number, body: unknown, headers = js
 
 export const seedAuthSession = async (page: Page) => {
   await page.addInitScript(
-    ({ key, sessionData, userData }) => {
+    ({ keys, sessionData, userData }) => {
       const payload = { ...sessionData, user: userData };
-      window.localStorage.setItem(key, JSON.stringify(payload));
-      window.localStorage.setItem(`${key}-user`, JSON.stringify({ user: userData }));
+      for (const key of keys) {
+        window.localStorage.setItem(key, JSON.stringify(payload));
+        window.localStorage.setItem(`${key}-user`, JSON.stringify({ user: userData }));
+      }
     },
-    { key: storageKey, sessionData: mockSession, userData: mockUser },
+    { keys: [storageKey, fallbackStorageKey], sessionData: mockSession, userData: mockUser },
   );
 };
 
@@ -101,7 +104,7 @@ export const setupSupabaseMock = async (page: Page, initialState?: Partial<Supab
     }
   }, { screens: state.screens });
 
-  ctx.route("**/auth/v1/**", async (route) => {
+  await ctx.route("**/auth/v1/**", async (route) => {
     const method = route.request().method();
     if (method === "OPTIONS") {
       return respond(route, 200, "", corsHeaders());
@@ -120,7 +123,7 @@ export const setupSupabaseMock = async (page: Page, initialState?: Partial<Supab
     return respond(route, 200, {});
   });
 
-  ctx.route("**/rest/v1/user_pins**", async (route) => {
+  await ctx.route("**/rest/v1/user_pins**", async (route) => {
     const method = route.request().method();
     if (method === "OPTIONS") {
       return respond(route, 200, "", corsHeaders());
@@ -134,7 +137,7 @@ export const setupSupabaseMock = async (page: Page, initialState?: Partial<Supab
     return respond(route, 200, { pinned_ids: nextPins });
   });
 
-  ctx.route("**/rest/v1/screen_layouts**", async (route) => {
+  await ctx.route("**/rest/v1/screen_layouts**", async (route) => {
     const method = route.request().method();
     if (method === "OPTIONS") {
       return respond(route, 200, "", corsHeaders());
@@ -164,7 +167,7 @@ export const setupSupabaseMock = async (page: Page, initialState?: Partial<Supab
     return respond(route, 200, payloads);
   });
 
-  ctx.route("**/rest/v1/screens**", async (route) => {
+  await ctx.route("**/rest/v1/screens**", async (route) => {
     const method = route.request().method();
     if (method === "OPTIONS") {
       return respond(route, 200, "", corsHeaders());
@@ -239,7 +242,7 @@ export const setupSupabaseMock = async (page: Page, initialState?: Partial<Supab
     return respond(route, 200, {});
   });
   
-  ctx.route("**/rpc/get_public_screen_by_token**", async (route) => {
+  await ctx.route("**/rpc/get_public_screen_by_token**", async (route) => {
     const method = route.request().method();
     if (method === "OPTIONS") return respond(route, 200, "", corsHeaders());
     const body = parseBody(route);

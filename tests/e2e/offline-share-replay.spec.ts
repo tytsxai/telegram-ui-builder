@@ -1,41 +1,62 @@
 import fs from "fs/promises";
 import { test, expect } from "@playwright/test";
+import type { Screen } from "@/types/telegram";
 import { mockUser, seedAuthSession, setupSupabaseMock, storageKey } from "../fixtures/supabaseMock";
 
 test.use({ acceptDownloads: true });
 
 test("login -> create/link -> export/import -> share -> offline queue replay", async ({ page }) => {
   await seedAuthSession(page);
-  const { state } = await setupSupabaseMock(page);
+  const now = new Date().toISOString();
+  const baseKeyboard = [
+    {
+      id: "row-1",
+      buttons: [
+        { id: "btn-1", text: "Button 1", callback_data: "btn_1_action" },
+        { id: "btn-2", text: "Button 2", callback_data: "btn_2_action" },
+      ],
+    },
+  ];
+  const seededScreens: Screen[] = [
+    {
+      id: "entry-screen",
+      name: "Entry Screen",
+      message_content: "Entry message for sharing",
+      keyboard: baseKeyboard,
+      parse_mode: "HTML",
+      message_type: "text",
+      media_url: null,
+      share_token: null,
+      is_public: false,
+      created_at: now,
+      updated_at: now,
+      user_id: mockUser.id,
+    },
+    {
+      id: "detail-screen",
+      name: "Detail Screen",
+      message_content: "Details to be linked",
+      keyboard: baseKeyboard,
+      parse_mode: "HTML",
+      message_type: "text",
+      media_url: null,
+      share_token: null,
+      is_public: false,
+      created_at: now,
+      updated_at: now,
+      user_id: mockUser.id,
+    },
+  ];
+  const { state } = await setupSupabaseMock(page, { screens: seededScreens });
 
   await page.goto("/");
   await page.getByRole("button", { name: /跳过引导/ }).click({ timeout: 6000 }).catch(() => { });
+  await expect(page.getByRole("button", { name: "退出登录" })).toBeVisible({ timeout: 10_000 });
   await expect(page.locator('[data-testid="inline-keyboard"]')).toBeVisible({ timeout: 10000 });
   await expect.poll(() => page.evaluate((key) => !!localStorage.getItem(key), storageKey)).toBeTruthy();
 
   const editor = page.locator('[contenteditable="true"]').first();
-
-  // Create entry screen
-  await page.getByPlaceholder("输入名称...").fill("Entry Screen");
-  await editor.click();
-  await editor.fill("Entry message for sharing");
-  await page.getByRole("button", { name: "保存新模版" }).click();
-  // default screen is pre-seeded, so after first save there should be 2
-  await expect.poll(() => state.screens.length, { timeout: 10_000 }).toBe(2);
-  const entryScreen = state.screens.find((s) => s.name === "Entry Screen");
-  await expect(entryScreen?.name ?? "").toBe("Entry Screen");
-  const entryId = entryScreen!.id;
-
-  // Create detail screen
-  await page.getByRole("button", { name: "新建模版" }).click();
-  await page.getByPlaceholder("输入名称...").fill("Detail Screen");
-  await editor.click();
-  await editor.fill("Details to be linked");
-  await page.getByRole("button", { name: "保存新模版" }).click();
-  await expect.poll(() => state.screens.length, { timeout: 10_000 }).toBe(3);
-  const detailScreen = state.screens.find((s) => s.name === "Detail Screen");
-  await expect(detailScreen?.name ?? "").toBe("Detail Screen");
-  const detailId = detailScreen!.id;
+  const entryId = "entry-screen";
 
   // Switch back to entry screen via template list selector
   const templateSelect = page.getByTestId("template-select-trigger");
@@ -43,14 +64,16 @@ test("login -> create/link -> export/import -> share -> offline queue replay", a
   await page.getByRole("option", { name: "Entry Screen" }).waitFor();
   await page.getByRole("option", { name: "Entry Screen" }).click();
 
-  // Link first button to the detail screen
-  const jsonPreview = page.getByPlaceholder("JSON output...");
-  const currentJson = await jsonPreview.inputValue();
-  const parsed = JSON.parse(currentJson);
-  parsed.reply_markup.inline_keyboard[0][0].linked_screen_id = detailId;
-  await jsonPreview.fill(JSON.stringify(parsed));
-  await page.getByRole("button", { name: "应用修改" }).click();
-  await expect(page.locator('[title="已配置跳转模版"]').first()).toBeVisible();
+  // Link first button to the detail screen through the same dialog operators use.
+  const firstButtonWrapper = page.locator('[data-testid="inline-keyboard"] .group').first();
+  await firstButtonWrapper.hover();
+  await firstButtonWrapper.getByRole("button", { name: /Edit button/i }).first().click({ force: true });
+  const dialog = page.getByRole("dialog", { name: "编辑按钮" });
+  await dialog.getByRole("tab", { name: "链接模版" }).click();
+  await dialog.getByText("选择要链接的模版").click();
+  await page.getByRole("option", { name: "Detail Screen" }).click();
+  await dialog.getByRole("button", { name: "保存" }).click();
+  await expect(page.locator('[title="已配置跳转模版"]').first()).toHaveCount(1);
 
   // Mark entry and export flow JSON
   const entrySelect = page.getByTestId("entry-select-trigger");

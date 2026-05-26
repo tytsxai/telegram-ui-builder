@@ -218,6 +218,7 @@ const ButtonEditDialog = ({ open, onOpenChange, button, onSave, screens = [], on
               <Label htmlFor="callback_data">Callback Data</Label>
               <Input
                 id="callback_data"
+                aria-label="Callback Data"
                 placeholder="button_action"
                 value={editedButton.callback_data || ""}
                 onChange={(e) => setEditedButton({ ...editedButton, callback_data: e.target.value })}

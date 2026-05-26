@@ -117,6 +117,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                         <Label htmlFor="media-url">媒体 URL</Label>
                         <Input
                             id="media-url"
+                            aria-label="媒体 URL"
                             placeholder="https://..."
                             value={mediaUrl}
                             onChange={(e) => onMediaUrlChange(e.target.value)}
