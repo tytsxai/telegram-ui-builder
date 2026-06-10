@@ -49,7 +49,7 @@ export class SupabaseDataAccess {
   }
 
   async saveScreen(payload: SaveScreenInput) {
-    const targetUserId = assertUserOwnership("saveScreen", payload.user_id ?? this.userId);
+    const targetUserId = resolveOwnerUserId("saveScreen", this.userId, payload.user_id);
     const nextPayload: SaveScreenInput = { ...payload, user_id: targetUserId };
     return this.run("insert", "screens", async () => {
       const { data, error } = await this.client
@@ -74,12 +74,13 @@ export class SupabaseDataAccess {
   }
 
   async updateScreen(params: UpdateScreenInput) {
-    const targetUserId = assertUserOwnership("updateScreen", params.update.user_id ?? this.userId);
+    const targetUserId = assertUserOwnership("updateScreen", this.userId);
+    const { user_id: _ignoredUserId, ...safeUpdate } = params.update;
 
     return this.run("update", "screens", async () => {
       const { data, error } = await this.client
         .from("screens")
-        .update(params.update)
+        .update(safeUpdate)
         .eq("id", params.screenId)
         .eq("user_id", targetUserId)
         .select()
@@ -99,7 +100,7 @@ export class SupabaseDataAccess {
   }
 
   async upsertPins(payload: UpsertPinsInput) {
-    const targetUserId = assertUserOwnership("upsertPins", payload.user_id ?? this.userId);
+    const targetUserId = resolveOwnerUserId("upsertPins", this.userId, payload.user_id);
     const nextPayload: UpsertPinsInput = { ...payload, user_id: targetUserId };
     return this.run("upsert", "user_pins", async () => {
       const { error } = await this.client.from("user_pins").upsert(nextPayload, { onConflict: "user_id" });
@@ -123,7 +124,7 @@ export class SupabaseDataAccess {
 
   async upsertLayouts(payload: UpsertLayoutsInput) {
     if (payload.length === 0) return [];
-    const targetUserId = assertUserOwnership("upsertLayouts", payload[0]?.user_id ?? this.userId);
+    const targetUserId = resolveOwnerUserId("upsertLayouts", this.userId, payload[0]?.user_id);
     const normalized = payload.map((layout) => ({ ...layout, user_id: targetUserId }));
     return this.run("upsert", "screen_layouts", async () => {
       const { error } = await this.client
@@ -280,6 +281,9 @@ const assertUserOwnership = (action: string, userId?: string | null) => {
   }
   return userId;
 };
+
+const resolveOwnerUserId = (action: string, boundUserId?: string | null, payloadUserId?: string | null) =>
+  assertUserOwnership(action, boundUserId ?? payloadUserId);
 
 const assertNoError = (error: unknown) => {
   if (error) {

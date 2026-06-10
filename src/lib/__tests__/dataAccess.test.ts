@@ -279,6 +279,34 @@ describe("SupabaseDataAccess ownership checks", () => {
     expect(result).toEqual({ id: "s1" });
   });
 
+  it("strips user_id from screen updates and keeps the active user scope", async () => {
+    const { client, spies } = buildUpdateChainClient({ data: { id: "s1" }, error: null });
+    const dataAccess = new SupabaseDataAccess(client, { userId: "user-1" });
+
+    await dataAccess.updateScreen({
+      screenId: "s1",
+      update: { name: "Updated", user_id: "other-user" } as never,
+    });
+
+    expect(spies.update).toHaveBeenCalledWith({ name: "Updated" });
+    expect(spies.secondEq).toHaveBeenCalledWith("user_id", "user-1");
+  });
+
+  it("prefers the active user over a payload user id when saving screens", async () => {
+    const { client, spies } = buildInsertClient({ data: { id: "s1" }, error: null });
+    const dataAccess = new SupabaseDataAccess(client, { userId: "user-1" });
+
+    await dataAccess.saveScreen({
+      user_id: "other-user",
+      name: "Screen 1",
+      message_content: "Message",
+      keyboard: [],
+      is_public: false,
+    });
+
+    expect(spies.insert).toHaveBeenCalledWith([expect.objectContaining({ user_id: "user-1" })]);
+  });
+
   it("deletes screens scoped to the active user", async () => {
     const inFn = vi.fn().mockResolvedValue({ error: null });
     const eq = vi.fn(() => ({ in: inFn }));

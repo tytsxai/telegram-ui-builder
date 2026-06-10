@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import type { User } from "@supabase/supabase-js";
 import type { KeyboardRow, Screen } from "@/types/telegram";
@@ -28,10 +28,11 @@ type OfflineQueueSyncArgs = {
     onItemFailure?: Parameters<typeof processPendingOps>[0]["onItemFailure"];
     onSuccess?: Parameters<typeof processPendingOps>[0]["onSuccess"];
   };
-  setScreens: React.Dispatch<React.SetStateAction<Screen[]>>;
-  setCurrentScreenId: (id?: string) => void;
-  setLastSavedSnapshot: React.Dispatch<React.SetStateAction<LastSavedSnapshot>>;
+  setScreens: Dispatch<SetStateAction<Screen[]>>;
+  setCurrentScreenId: Dispatch<SetStateAction<string | undefined>>;
+  setLastSavedSnapshot: Dispatch<SetStateAction<LastSavedSnapshot>>;
   setPendingQueueSize: (n: number) => void;
+  onScreenIdReplaced?: (oldId: string, newId: string) => void;
 };
 
 const safeRandomId = () => {
@@ -43,6 +44,22 @@ const safeRandomId = () => {
     // ignore
   }
   return `local_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+};
+
+const normalizeKeyboard = (keyboard: Screen["keyboard"] | unknown): KeyboardRow[] =>
+  Array.isArray(keyboard) ? cloneKeyboard(keyboard as KeyboardRow[]) : [];
+
+const replaceLinkedScreenId = (keyboard: Screen["keyboard"] | unknown, oldId: string, newId: string) => {
+  let changed = false;
+  const rows = normalizeKeyboard(keyboard).map((row) => ({
+    ...row,
+    buttons: row.buttons.map((button) => {
+      if (button.linked_screen_id !== oldId) return button;
+      changed = true;
+      return { ...button, linked_screen_id: newId };
+    }),
+  }));
+  return { keyboard: rows, changed };
 };
 
 export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
@@ -60,6 +77,7 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
     setCurrentScreenId,
     setLastSavedSnapshot,
     setPendingQueueSize,
+    onScreenIdReplaced,
   } = args;
 
   const queuedToastShownRef = useRef(false);
@@ -191,18 +209,42 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
           if (item.kind === "save") {
             const saved = await dataAccess.saveScreen(item.payload);
             if (saved) {
+              const savedScreen = {
+                ...(saved as Screen),
+                keyboard: normalizeKeyboard((saved as Screen).keyboard),
+              } as Screen;
+              const localId = item.payload.id;
+              const savedId = savedScreen.id;
               setScreens((prev) => {
-                const idx = prev.findIndex((s) => s.id === (item.payload.id ?? (saved as Screen).id));
-                if (idx === -1) return prev;
-                const next = [...prev];
-                next[idx] = { ...(saved as Screen), keyboard: (saved as Screen).keyboard as KeyboardRow[] } as Screen;
-                return next;
+                let foundSavedTarget = false;
+                const remapIds = Boolean(localId && savedId && localId !== savedId);
+                const next = prev.map((screen) => {
+                  const isSavedTarget = screen.id === (localId ?? savedId) || screen.id === savedId;
+                  if (isSavedTarget) {
+                    foundSavedTarget = true;
+                    const keyboard = remapIds
+                      ? replaceLinkedScreenId(savedScreen.keyboard, localId!, savedId).keyboard
+                      : normalizeKeyboard(savedScreen.keyboard);
+                    return { ...savedScreen, keyboard } as Screen;
+                  }
+                  if (!remapIds) return screen;
+                  const { keyboard, changed } = replaceLinkedScreenId(screen.keyboard, localId!, savedId);
+                  return changed ? ({ ...screen, keyboard } as Screen) : screen;
+                });
+                return foundSavedTarget ? next : prev;
               });
               setLastSavedSnapshot({
                 messageContent: item.payload.message_content,
                 keyboard: cloneKeyboard(item.payload.keyboard as KeyboardRow[]),
               });
-              setCurrentScreenId((current) => current ?? (saved as Screen).id);
+              if (localId && savedId && localId !== savedId) {
+                onScreenIdReplaced?.(localId, savedId);
+                if (!onScreenIdReplaced) {
+                  setCurrentScreenId((current) => (current === localId || !current ? savedId : current));
+                }
+              } else {
+                setCurrentScreenId((current) => current ?? savedId);
+              }
             }
           } else {
             const updated = await dataAccess.updateScreen({ screenId: item.payload.id, update: item.payload.update });
@@ -244,6 +286,7 @@ export const useOfflineQueueSync = (args: OfflineQueueSyncArgs) => {
     setCurrentScreenId,
     setScreens,
     queueReplayCallbacks,
+    onScreenIdReplaced,
     user,
     setLastSavedSnapshot,
   ]);

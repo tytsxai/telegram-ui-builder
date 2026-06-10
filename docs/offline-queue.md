@@ -32,6 +32,7 @@ Updates are de-duped per screen id:
 Replay is orchestrated by higher-level code (currently via `useOfflineQueueSync`):
 - Read the queue, execute items sequentially with retry/backoff, and persist remaining items.
 - On success: remove the processed item and publish telemetry.
+- For queued `save` items, the UI may have used a local temporary screen id before Supabase returns the final row id. Replay must replace that temporary id in the saved screen, other screens' `linked_screen_id` references, current navigation state, and entry selection before reporting the queue as synced.
 - On permanent failure: keep remaining items, surface a notice, and require user action (retry/clear/export).
 
 Backoff and retry logic is shared with Supabase retry utilities (see `src/lib/supabaseRetry.ts`).
@@ -44,4 +45,3 @@ Replay paths may publish sync telemetry with `scope: "queue"`:
 ## User-facing behaviors
 - The UI shows a “pending” badge/count when the queue is non-empty.
 - Users can retry or clear the queue; some flows allow exporting the queue JSON for debugging.
-

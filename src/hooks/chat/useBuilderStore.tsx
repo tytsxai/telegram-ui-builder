@@ -202,7 +202,8 @@ export const useBuilderStore = () => {
     entryScreenId,
     handleNavigateBack,
     handleNavigateToScreen,
-    handleSetEntry
+    handleSetEntry,
+    handleReplaceScreenId,
   } = useScreenNavigation(screens, setScreens, loadScreens);
 
   const screenById = useMemo(() => new Map(screens.map((screen) => [screen.id, screen])), [screens]);
@@ -246,6 +247,7 @@ export const useBuilderStore = () => {
     setCurrentScreenId,
     setLastSavedSnapshot,
     setPendingQueueSize,
+    onScreenIdReplaced: handleReplaceScreenId,
   });
 
   useEffect(() => {

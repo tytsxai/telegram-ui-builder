@@ -77,6 +77,17 @@ export const useScreenNavigation = (
         setEntryScreenId(screenId);
     }, []);
 
+    const handleReplaceScreenId = useCallback((oldId: string, newId: string) => {
+        if (!oldId || !newId || oldId === newId) return;
+        setCurrentScreenId((prev) => (prev === oldId || !prev ? newId : prev));
+        setNavigationHistory((prev) => {
+            const next = prev.map((id) => (id === oldId ? newId : id));
+            const unchanged = next.length === prev.length && next.every((id, idx) => id === prev[idx]);
+            return unchanged ? prev : next;
+        });
+        setEntryScreenId((prev) => (prev === oldId ? newId : prev));
+    }, []);
+
     const handleJumpToEntry = useCallback(() => {
         if (entryScreenId && screens.some(s => s.id === entryScreenId)) {
             handleNavigateToScreen(entryScreenId);
@@ -96,7 +107,7 @@ export const useScreenNavigation = (
             if (prev && ids.has(prev)) return prev;
             return undefined;
         });
-    }, [screens, navigationHistory]);
+    }, [screens]);
 
     return {
         currentScreenId,
@@ -106,6 +117,7 @@ export const useScreenNavigation = (
         handleNavigateBack,
         handleNavigateToScreen,
         handleSetEntry,
+        handleReplaceScreenId,
         handleJumpToEntry
     };
 };
