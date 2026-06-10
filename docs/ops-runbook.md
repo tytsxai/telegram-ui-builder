@@ -43,13 +43,15 @@
   - Nginx: `try_files $uri /index.html;`.
 
 ## Runtime Config Guard
-- Production builds will show a configuration error screen if Supabase env values are missing or placeholders.
-- Ensure `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are set at build time.
+- Ensure `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are set at build time for any deployment that needs auth, cloud persistence, or share links.
+- Current `npm run check:env` / `npm run build:prod` exits non-zero on production errors such as missing required Supabase env, placeholder values, localhost/insecure production URL, or accidental service-role/admin key exposure.
+- The frontend runtime also renders a configuration error screen for blocking production errors detected after boot, such as localhost Supabase URL on a non-local production host, insecure `http://` Supabase URL, or accidental service-role/admin key exposure.
+- If a non-prod/local build uses fallback Supabase values, the SPA may still load but auth, cloud persistence, and share flows are not production-ready.
 - Supabase URL must be https in production (non-local).
 - Service role keys are rejected on the client; never expose `SUPABASE_SERVICE_ROLE_KEY` via `VITE_*`.
 - Set `VITE_ERROR_REPORTING_URL` in production to capture errors (warns if omitted).
 - Set `VITE_APP_VERSION` or `VITE_COMMIT_SHA` to tag production error reports.
-- Run `npm run check:env` (or `npm run build:prod`) in release pipelines to fail fast on bad env.
+- Run `npm run check:env` (or `npm run build:prod`) in release pipelines before publishing.
 
 ## Key Rotation (Supabase)
 - Rotate anon keys on suspected leakage and update `VITE_SUPABASE_PUBLISHABLE_KEY` in your host.

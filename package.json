@@ -2,7 +2,7 @@
   "name": "telegram-ui-builder",
   "private": true,
   "version": "0.1.1",
-  "description": "Visual workbench for Telegram Bot messages + inline keyboards + multi-screen flows.",
+  "description": "Open-source Telegram bot UI builder for designing messages, inline keyboards, multi-screen flows, JSON exports, and Supabase-backed share links.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -15,14 +15,25 @@
   "keywords": [
     "telegram",
     "telegram-bot",
+    "telegram-bot-ui",
+    "telegram-bot-builder",
+    "telegram-bot-designer",
     "inline-keyboard",
+    "inline-keyboard-builder",
+    "conversation-design",
     "ui-builder",
+    "bot-ui",
     "flow",
+    "flow-builder",
     "workflow",
     "react",
+    "typescript",
     "supabase",
     "vite",
-    "shadcn-ui"
+    "shadcn-ui",
+    "aiogram",
+    "grammy",
+    "telegraf"
   ],
   "type": "module",
   "scripts": {

@@ -12,8 +12,8 @@ npm run dev
 
 ## Existing hosted project
 1) Set env vars in `.env`:
-   - `VITE_SUPABASE_URL`, `VITE_SUPABASE_PROJECT_ID`, `VITE_SUPABASE_PUBLISHABLE_KEY`
-   - Optional for scripts: `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ACCESS_TOKEN`
+   - `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`
+   - Optional for scripts: `SUPABASE_PROJECT_REF`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_ANON_KEY`
 2) Apply schema: run `supabase db push` (with the repo migrations) or execute `scripts/supabase/schema.sql` in the SQL editor.
 3) Verify RLS policies on `screens`, `user_pins`, `screen_layouts` (owner-only; public share reads via `get_public_screen_by_token`, no broad SELECT policy). Confirm `screens_public_no_sensitive` constraint exists.
 4) Enable leaked password protection in Supabase Auth settings (Dashboard > Auth > Security).
