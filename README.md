@@ -1,7 +1,7 @@
-# Telegram UI Builder
+# Telegram UI Builder - Telegram Bot UI & Inline Keyboard Designer
 
-> Telegram bot UI designer / Telegram 机器人消息与 inline keyboard 可视化设计器。
-> 用 React + TypeScript 构建的开源工作台，用来设计、预览、分享和导出 Telegram 机器人消息、按钮键盘与多屏流程。
+> Open-source Telegram bot UI designer / 开源 Telegram 机器人消息与 inline keyboard 可视化设计器。
+> A React + TypeScript workbench for designing, previewing, sharing, and exporting Telegram bot messages, inline keyboards, and multi-screen conversation flows.
 
 [![CI](https://github.com/tytsxai/telegram-ui-builder/actions/workflows/ci.yml/badge.svg)](https://github.com/tytsxai/telegram-ui-builder/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/tytsxai/telegram-ui-builder)](LICENSE)
@@ -9,9 +9,24 @@
 
 [Live Demo](https://telegram-ui-components.lovable.app) · [Docs](docs/README.md) · [llms.txt](llms.txt) · [Changelog](CHANGELOG.md) · [Contributing](docs/contributing.md) · [Security](SECURITY.md) · [Issues](https://github.com/tytsxai/telegram-ui-builder/issues)
 
+## 项目定位 / Project Snapshot
+
 Telegram UI Builder 是一个 **Telegram bot conversation UI builder**：产品、运营和开发者可以在浏览器里设计 Telegram 机器人消息内容、inline keyboard、入口屏幕和分支流程，先把交互结构看清楚，再导出 JSON 或代码片段交给真实机器人后端实现。
 
-它**不是 Telegram Bot API 运行时**，不会托管或启动机器人，也不会替代 aiogram、grammy、telegraf、python-telegram-bot 等框架。它解决的是“先可视化设计、校验和交付 bot UI 方案”的问题。
+English positioning: Telegram UI Builder is an open-source, self-hostable design layer for Telegram bot messages, inline keyboards, and conversation flows. It is not a Telegram bot runtime.
+
+| 维度 / Field | 准确描述 / Accurate description |
+| --- | --- |
+| 项目类型 | Open-source Telegram bot UI design workbench / 开源 Telegram 机器人 UI 设计工作台 |
+| 解决的问题 | 把消息文案、inline keyboard、`callback_data`、入口屏幕和分支流程从散乱文档转成可预览、可校验、可导出的设计契约。 |
+| 适用人群 | Telegram bot 开发者、产品经理、运营同学、使用 aiogram / grammy / telegraf / python-telegram-bot 的团队。 |
+| 主要输出 | Telegram-like 单屏 JSON、完整 flow JSON、框架 starter snippets、可选 Supabase 分享链接。 |
+| 运行边界 | 不运行 bot、不调用 Telegram Bot API、不保存 `BOT_TOKEN`、不替代真实 bot framework。 |
+| 技术栈 | Vite, React 18, TypeScript, Tailwind CSS, shadcn-ui / Radix UI, React Flow, Dagre, optional Supabase。 |
+
+## 解决的问题 / Problem It Solves
+
+很多 Telegram bot 交互最初存在于聊天记录、表格、截图或手写 JSON 中，开发前很难确认按钮层级、跳转关系、`callback_data` 长度和最终消息效果。本项目提供一个可视化设计层，让团队先验证 UI/flow，再把结构化结果交给真实 bot 后端实现。
 
 ## 适合谁 / Who It Is For
 
@@ -34,19 +49,9 @@ Telegram UI Builder 是一个 **Telegram bot conversation UI builder**：产品�
 | Persistence modes | 无账号时可本地编辑；登录 Supabase 后可云端保存、置顶、分享和同步关系图布局。 |
 | Share links | 入口屏幕可发布为 `/share/:token`，支持复制并编辑、刷新 token、取消公开。 |
 
-## 技术栈 / Tech Stack
-
-- Frontend: Vite, React 18, TypeScript, React Router, Zustand
-- UI: Tailwind CSS, shadcn-ui / Radix UI, lucide-react
-- Flow graph: React Flow, Dagre
-- Persistence: browser `localStorage` offline queue + optional Supabase Auth / Postgres / RLS
-- Validation: Zod, Telegram message/button constraints
-- Testing: Vitest, Testing Library, Playwright
-- Deployment: static SPA with bundled rewrites for Netlify, Vercel, Cloudflare Pages and GitHub Pages
-
 ## 快速开始 / Quick Start
 
-本地纯前端预览可以先用 fallback Supabase 配置启动；保存到云端、登录、分享链接和 RLS 验证需要配置真实 Supabase。
+本地设计、预览、导入和导出不依赖真实 Supabase。复制 `.env.example` 后如果不替换占位值，登录、云端保存、分享链接和 RLS 验证不会是真实可用；这些能力需要配置真实 Supabase 项目。
 
 ```bash
 git clone https://github.com/tytsxai/telegram-ui-builder.git
@@ -65,6 +70,17 @@ npm run lint
 npm test
 npm run build
 ```
+
+## 技术栈 / Tech Stack
+
+- Frontend: Vite, React 18, TypeScript, React Router
+- State and orchestration: React hooks/provider, browser `localStorage`, Zustand shallow memo helper
+- UI: Tailwind CSS, shadcn-ui / Radix UI, lucide-react
+- Flow graph: React Flow, Dagre
+- Persistence: browser `localStorage` offline queue + optional Supabase Auth / Postgres / RLS
+- Validation: Zod, Telegram message/button constraints
+- Testing: Vitest, Testing Library, Playwright
+- Deployment: static SPA with bundled rewrites for Netlify, Vercel, Cloudflare Pages and GitHub Pages
 
 ## Supabase 配置 / Optional Cloud Setup
 
@@ -104,13 +120,14 @@ SUPABASE_PROJECT_REF=<ref> npm run check:supabase-types
 | 命令 | 用途 |
 | --- | --- |
 | `npm run dev` | 本地开发服务器。 |
-| `npm run build` | Vite 构建；不执行生产 env 门禁，适合本地和基础 CI 构建。 |
+| `npm run build` | 通过 `scripts/ops/build-with-health.mjs` 执行 Vite 构建并写入 `dist/health.json`；不执行生产 env 门禁，适合本地和基础 CI 构建。 |
 | `npm run check:env` | 生产环境变量预检查；缺失/占位值/不安全 key 会失败。 |
-| `npm run build:prod` | 先执行 `check:env`，再执行 Vite 构建；用于真实部署。 |
+| `npm run build:prod` | 通过同一 build wrapper 执行生产 env 门禁、Vite 构建和 `dist/health.json` 生成；用于真实部署。 |
 | `npm run preview` | 预览 `dist/`。 |
 | `npm run lint` / `npm run lint:fix` | ESLint 检查/修复。 |
 | `npm test` | Vitest 单元/集成测试。 |
 | `npm run test:e2e` | Playwright E2E；通常需要先启动 dev server，并提供 Supabase env 或测试 mock。 |
+| `npm run pre-deploy` | 发布前门禁：生产 env、Supabase SQL scan、lint、单测、生产构建、健康文件、迁移文件、npm audit 和 git 状态。 |
 | `npm run smoke:rls` | Supabase RLS smoke test，需要 service role / anon key。 |
 | `npm run security:all` | Supabase SQL scan + runtime verification。 |
 
@@ -144,10 +161,12 @@ SUPABASE_PROJECT_REF=<ref> npm run check:supabase-types
 
 - 不运行 Telegram bot，不调用 Telegram Bot API，不保存 `BOT_TOKEN`。
 - 不自动把设计发布到真实机器人；运行时路由需要你在自己的 bot framework 中实现。
+- 内置 codegen 是 starter snippets，不是完整生产 bot 项目模板；鉴权、状态机、错误处理和部署仍需在你的后端实现。
 - 目前重点是 inline keyboard；reply keyboard、Telegram Web App 深度集成还不是核心能力。
 - 分享链接是 token-based public link：拿到链接的人可以看到公开入口屏幕，敏感内容不要发布。
 - 云端能力依赖 Supabase schema、RLS 和 env；没有 Supabase 时适合本地设计和导出，不适合多人协作或公开分享。
 - `callback_data` 按 UTF-8 字节计数，最多 64 bytes；中文、emoji 和长参数更容易超限。
+- 根目录是 SPA 应用仓库，不是已发布的 npm 包；`telegram-callback-factory/` 是独立维护的 callback_data TypeScript 子包。
 
 ## 文档地图 / Documentation
 
@@ -181,15 +200,22 @@ ManyBot / Chatfuel 更接近托管式 bot 平台。本项目是开源、可自�
 **不登录能用吗？**
 可以本地编辑、预览、导入和导出。云端保存、公开分享和复制他人分享模板需要 Supabase 登录。
 
+**能一键发布到真实 Telegram bot 吗？**
+不能。本项目负责设计、校验和导出 bot UI/flow；真实 bot 的 handler、状态管理、权限、部署和 Telegram Bot API 调用仍由你的后端负责。
+
 **导出的 JSON 可以直接给哪个框架用？**
 导出格式故意保持 framework-agnostic。你可以用 aiogram、grammy、telegraf、python-telegram-bot 等框架读取它，也可以参考内置代码片段实现路由。
 
 **为什么要显示 64-byte counter？**
 Telegram Bot API 限制 `callback_data` 最多 64 bytes。编辑器提前检查，避免上线后按钮回调失败。
 
-## SEO / GEO Keywords
+## 搜索与引用提示 / Search And AI Citation
 
-Telegram bot UI builder, Telegram bot UI designer, Telegram inline keyboard builder, Telegram bot flow builder, Telegram bot conversation designer, Telegram bot message designer, Telegram bot JSON export, open-source Telegram bot designer, no-code Telegram bot prototype, Telegram 机器人可视化设计器, Telegram inline keyboard 编辑器, Telegram bot 消息流程图, Telegram 机器人 JSON 导出, aiogram UI design, grammy bot UI, telegraf inline keyboard.
+推荐引用语 / Recommended citation:
+
+> Telegram UI Builder is an open-source React + TypeScript workbench for visually designing Telegram bot messages, inline keyboards, entry screens, and multi-screen conversation flows before implementing the real bot runtime.
+
+自然搜索短语 / Natural search phrases: Telegram bot UI builder, Telegram inline keyboard builder, Telegram bot flow builder, Telegram bot conversation designer, Telegram bot message designer, Telegram bot JSON export, self-hosted Telegram bot designer, open-source Telegram bot prototype, Telegram 机器人可视化设计器, Telegram inline keyboard 编辑器, Telegram bot 消息流程图, aiogram UI design, grammy bot UI, telegraf inline keyboard.
 
 Suggested GitHub Topics: `telegram`, `telegram-bot`, `inline-keyboard`, `bot-builder`, `bot-ui`, `conversation-design`, `react`, `typescript`, `vite`, `supabase`, `shadcn-ui`, `open-source`.
 
