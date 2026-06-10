@@ -49,9 +49,9 @@ export VITE_COMMIT_SHA="$(git rev-parse HEAD)"
 npm run build:prod
 ```
 
-`build:prod` runs `npm run check:env` first. It fails on missing production Supabase vars, placeholder values, service-role keys in browser env, localhost production URLs, and insecure production Supabase URLs.
+`build:prod` runs `scripts/ops/build-with-health.mjs --check-env`, so it performs the production env gate before Vite build and writes `dist/health.json` after a successful build. It fails on missing production Supabase vars, placeholder values, service-role keys in browser env, localhost production URLs, and insecure production Supabase URLs.
 
-The output is `dist/`.
+The output is `dist/`, including `dist/index.html`, assets, templates, static fallback files, and `dist/health.json`.
 
 ## Static Hosting
 
@@ -232,7 +232,7 @@ npm run smoke:rls
 3. `npm run build`
 4. `npm run test:e2e`
 5. `npm run check:env` with production env
-6. `npm run pre-deploy` with production env after `dist/` exists
+6. `npm run pre-deploy` with production env; it runs the env gate, SQL security scan, lint, unit tests, `build:prod`, artifact checks, migration-file checks, npm audit, and git-status check
 7. Deploy `dist/`
-8. Verify `/health.json`, `/`, `/auth`, and a known `/share/:token`
+8. Verify `/health.json`, `/`, `/auth`, and a known `/share/:token`; `health.json.version` or `health.json.commit` must match the release being deployed
 9. Record commit SHA, migration version, deploy target, and rollback target

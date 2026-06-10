@@ -15,9 +15,16 @@ Expected response:
 ```json
 {
   "status": "ok",
-  "service": "telegram-ui-builder"
+  "service": "telegram-ui-builder",
+  "runtime": "static",
+  "version": "<version-or-short-sha>",
+  "commit": "<commit-sha>",
+  "buildTime": "<iso-date>",
+  "basePath": "/"
 }
 ```
+
+`status` only proves the static artifact is reachable. For production verification, also confirm `version` or `commit` matches the intended release and that the same deployment serves `/`, `/auth`, and `/share/<known-valid-token>`.
 
 Route checks:
 
@@ -38,9 +45,10 @@ npm run test:e2e
 Production preflight:
 
 ```bash
-npm run check:env
 npm run pre-deploy
 ```
+
+`pre-deploy` includes the production env gate, SQL security scan, lint, unit tests, `build:prod`, health-file validation, migration-file presence checks, npm audit, and git status.
 
 Supabase/security checks:
 
@@ -57,7 +65,7 @@ npm run verify:migrations
 
 1. Identify the failing layer: static host, browser config, Supabase auth, Supabase RLS/schema, offline queue, or a UI logic regression.
 2. Capture release commit, host/deployment id, Supabase project, browser console error, and visible requestId if present.
-3. Check `/health.json` and SPA rewrites before debugging application logic.
+3. Check `/health.json` version/commit and SPA rewrites before debugging application logic.
 4. Check runtime config warnings/errors in the browser console.
 5. Check Supabase availability, RLS policies, and recent migrations.
 6. If the issue is a release regression, rollback static assets first. If migrations caused data/security issues, follow the migration rollback plan separately.

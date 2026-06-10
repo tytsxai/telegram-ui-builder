@@ -15,6 +15,16 @@ interface State {
   errorInfo: ErrorInfo | null;
 }
 
+export const getErrorBoundaryDisplayMessage = (
+  error: Error | null,
+  showDetails = import.meta.env.DEV,
+) => {
+  if (showDetails) {
+    return error?.message || '未知错误';
+  }
+  return '应用发生未预期错误，请刷新或稍后重试';
+};
+
 /**
  * 错误边界组件
  * 捕获子组件树中的 JavaScript 错误，记录错误并显示备用 UI
@@ -113,7 +123,7 @@ class ErrorBoundary extends Component<Props, State> {
             <div className="bg-muted/50 rounded-md p-4 mb-4">
               <p className="text-sm font-medium mb-2">错误信息：</p>
               <p className="text-xs text-muted-foreground font-mono break-all">
-                {this.state.error?.message || '未知错误'}
+                {getErrorBoundaryDisplayMessage(this.state.error)}
               </p>
             </div>
 

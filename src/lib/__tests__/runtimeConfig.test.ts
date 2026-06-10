@@ -30,13 +30,13 @@ describe("runtimeConfig", () => {
     expect(report.issues.some((issue) => issue.level === "warning")).toBe(true);
   });
 
-  it("marks missing env as warnings in prod", () => {
+  it("blocks missing env in prod", () => {
     const report = getRuntimeConfigReport(buildEnv({ PROD: true }));
-    expect(report.hasBlockingIssues).toBe(false);
-    expect(report.issues.some((issue) => issue.level === "warning")).toBe(true);
+    expect(report.hasBlockingIssues).toBe(true);
+    expect(report.issues.some((issue) => issue.level === "error")).toBe(true);
   });
 
-  it("marks placeholder env as warnings in prod", () => {
+  it("blocks placeholder env in prod", () => {
     const report = getRuntimeConfigReport(
       buildEnv({
         VITE_SUPABASE_URL: "https://your-project.supabase.co",
@@ -44,8 +44,8 @@ describe("runtimeConfig", () => {
         PROD: true,
       }),
     );
-    expect(report.hasBlockingIssues).toBe(false);
-    expect(report.issues.some((issue) => issue.message.includes("placeholders"))).toBe(true);
+    expect(report.hasBlockingIssues).toBe(true);
+    expect(report.issues.some((issue) => issue.level === "error" && issue.message.includes("placeholders"))).toBe(true);
   });
 
   it("flags service role keys even outside prod", () => {

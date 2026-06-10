@@ -23,7 +23,7 @@ Target: keep app and Supabase in sync, with strict RLS and typed client coverage
 - [ ] Set `VITE_ERROR_REPORTING_URL` (and API key if needed) for production error capture.
 - [ ] Inject `VITE_APP_VERSION` or `VITE_COMMIT_SHA` in production builds for release tagging.
 - [ ] Enable leaked password protection in Supabase Auth settings for hosted projects.
-- [ ] Run `npm run check:env` (or `npm run build:prod`) in release pipelines to catch missing/placeholder/insecure keys.
+- [ ] Run `npm run pre-deploy` in release pipelines to catch missing/placeholder/insecure keys, SQL policy regressions, build failures, missing health metadata, missing migration files, and high-severity production dependency issues.
 
 ## Data & RLS Validation
 - [ ] Smoke test with anon key: create/update/delete screens as the signed-in user; ensure other users cannot access non-public screens.

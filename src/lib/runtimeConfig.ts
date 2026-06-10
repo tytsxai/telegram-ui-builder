@@ -26,12 +26,6 @@ export type RuntimeConfigReport = {
   hasBlockingIssues: boolean;
 };
 
-const isLocalHostname = () => {
-  if (typeof window === "undefined") return false;
-  const host = window.location.hostname;
-  return host === "localhost" || host === "127.0.0.1";
-};
-
 const looksLikeLocalSupabaseUrl = (value?: string) => {
   if (!value) return false;
   return value.includes("localhost") || value.includes("127.0.0.1");
@@ -87,7 +81,7 @@ export const getRuntimeConfigReport = (env: RuntimeEnv = import.meta.env): Runti
   if (!key) missing.push("VITE_SUPABASE_PUBLISHABLE_KEY");
   if (missing.length > 0) {
     issues.push({
-      level: "warning",
+      level: isProd ? "error" : "warning",
       message: `Missing env: ${missing.join(", ")}.`,
     });
   }
@@ -96,12 +90,12 @@ export const getRuntimeConfigReport = (env: RuntimeEnv = import.meta.env): Runti
   const usingExample = looksLikeExampleValues(url, key);
   if (url && key && (usingFallback || usingExample)) {
     issues.push({
-      level: "warning",
+      level: isProd ? "error" : "warning",
       message: "Supabase env values look like placeholders; replace with real project credentials.",
     });
   }
 
-  if (env.VITE_SUPABASE_URL && looksLikeLocalSupabaseUrl(url) && isProd && !isLocalHostname()) {
+  if (env.VITE_SUPABASE_URL && looksLikeLocalSupabaseUrl(url) && isProd) {
     issues.push({
       level: "error",
       message: "Supabase URL points to localhost in production.",

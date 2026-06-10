@@ -13,7 +13,7 @@ Configuration is split into build-time browser variables, Supabase tooling varia
 | `VITE_APP_VERSION` | Error-report release tag | `errorReportingClient`, `runtimeConfig` | Optional; recommended in production. |
 | `VITE_COMMIT_SHA` | Error-report release tag | `errorReportingClient`, `runtimeConfig` | Optional fallback/alternative to `VITE_APP_VERSION`. |
 
-`npm run check:env` validates production values and exits non-zero on blocking errors. `npm run build:prod` runs that check before `vite build`. Use `npm run build` for local/CI build checks when real production env is intentionally unavailable.
+`npm run check:env` validates production values and exits non-zero on blocking errors. `npm run build:prod` runs the same gate through `scripts/ops/build-with-health.mjs --check-env`, then runs Vite build and writes `dist/health.json`. Use `npm run build` for local/CI build checks when real production env is intentionally unavailable.
 
 ## Supabase Tooling Env
 
@@ -31,9 +31,9 @@ Configuration is split into build-time browser variables, Supabase tooling varia
 
 `src/lib/runtimeConfig.ts` returns a report with warnings and errors:
 
-- Missing Supabase browser vars: warning in non-production.
-- Placeholder or fallback Supabase values: warning.
-- Production localhost Supabase URL on a non-local host: error.
+- Missing Supabase browser vars: warning in non-production, error in production.
+- Placeholder or fallback Supabase values: warning in non-production, error in production.
+- Production localhost Supabase URL: error.
 - Production `http://` Supabase URL outside local hosts: error.
 - Service-role/admin key in `VITE_SUPABASE_PUBLISHABLE_KEY`: error.
 - Missing production error reporting URL or release tag: warning.

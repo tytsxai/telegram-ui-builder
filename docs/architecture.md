@@ -23,7 +23,7 @@ The build output is `dist/`. Static hosts must rewrite SPA routes back to `index
 ## Runtime Boot
 
 - `src/main.tsx` initializes sync telemetry defaults, error reporting, runtime config validation, and then renders either `RuntimeConfigError` or `App`.
-- `src/lib/runtimeConfig.ts` reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`, provides dev/test fallbacks, and blocks production rendering on dangerous config such as localhost Supabase URLs or service-role keys exposed to the client.
+- `src/lib/runtimeConfig.ts` reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`, provides dev/test fallbacks, and blocks production rendering on missing, placeholder, fallback, localhost, insecure HTTP, or service-role/admin client config.
 - `src/App.tsx` mounts `BrowserRouter`, routes, global toast providers, `ErrorBoundary`, and the draggable GitHub badge. `BrowserRouter` derives its basename from `import.meta.env.BASE_URL`, which is required for GitHub Pages base-path deployment.
 
 ## Route Map

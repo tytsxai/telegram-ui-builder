@@ -2,7 +2,7 @@ import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import ErrorBoundary from "../ErrorBoundary";
+import ErrorBoundary, { getErrorBoundaryDisplayMessage } from "../ErrorBoundary";
 import { reportError } from "@/lib/errorReporting";
 
 vi.mock("@/lib/errorReporting", () => ({
@@ -46,6 +46,13 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("BOOM")).toBeTruthy();
 
     consoleError.mockRestore();
+  });
+
+  it("hides raw error messages in production display mode", () => {
+    const error = new Error("token=secret&internal=detail");
+
+    expect(getErrorBoundaryDisplayMessage(error, false)).toBe("应用发生未预期错误，请刷新或稍后重试");
+    expect(getErrorBoundaryDisplayMessage(error, true)).toBe("token=secret&internal=detail");
   });
 
   it("getDerivedStateFromError sets hasError state", () => {
