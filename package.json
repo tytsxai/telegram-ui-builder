@@ -109,7 +109,7 @@
     "esbuild": "^0.27.0",
     "glob": "^13.0.0",
     "input-otp": "^1.4.2",
-    "js-yaml": "^4.1.1",
+    "js-yaml": "^4.3.0",
     "lucide-react": "^0.462.0",
     "next-themes": "^0.3.0",
     "react": "^18.3.1",
