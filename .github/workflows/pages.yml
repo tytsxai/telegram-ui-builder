@@ -38,8 +38,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # `build:prod` runs verify-env with --check-env, which hard-fails when
+      # VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY are unset. Those
+      # secrets have never been configured on this repository, so every Pages
+      # deploy since 2026-06-10 failed and the published demo stayed frozen on
+      # the May build. The demo does not need a backend: the Supabase client
+      # falls back to safe local defaults and the affected features degrade.
+      # Plain `build` is used here on purpose — keep `build:prod --check-env`
+      # for real production deploys, where the secrets do exist.
       - name: Build (GitHub Pages base)
-        run: npm run build:prod -- --base=/telegram-ui-builder/
+        run: npm run build -- --base=/telegram-ui-builder/
 
       - name: Setup Pages
         uses: actions/configure-pages@v6
