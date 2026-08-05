@@ -1,0 +1,30 @@
+version: 2
+
+# Two majors currently cannot be taken without a code migration, and Dependabot
+# kept reopening PRs for them that could never go green. They are ignored here
+# until the migration is actually done — see the notes on each entry.
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR per week for the routine stuff instead of one PR per package.
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # eslint 10 forces eslint-plugin-react-hooks 7, which enables
+      # set-state-in-effect, preserve-caught-error and no-useless-assignment.
+      # Those report 51 findings in the current source, so `npm run lint` fails
+      # the moment the bump lands. Lift this once the findings are cleaned up.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
+      # vite 7 builds through rolldown, which only accepts the function form of
+      # build.rollupOptions.manualChunks. vite.config.ts still uses the object
+      # form, so the build dies with "manualChunks is not a function". Lift
+      # after that config is rewritten.
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
